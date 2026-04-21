@@ -368,6 +368,9 @@ class AdaptiveFramework(nn.Module):
         self.device = device
         self.logger = self._setup_logging()
         
+        # [V8.3] Surgical Hardening: Mode flag for hibernating cognitive loops
+        self._internal_consolidation_mode = False
+
         # 1. The "Body" (Base Model)
         self.model = user_model.to(self.device)
         
