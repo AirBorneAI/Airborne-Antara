@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: airborne-antara
-Version: 0.0.3
+Version: 0.0.4
 Summary: Production-grade adaptive meta-learning framework for continual model improvement. Implements research DOI: 10.5281/zenodo.17839490.
 Author-email: AirborneHRS Team <friday@airbornehrs.in>
 License-Expression: MIT
@@ -163,7 +163,7 @@ agent = AdaptiveFramework(model, AdaptiveFrameworkConfig.production())
 
 # 3. EXECUTE TRAINING
 # The agent internally manages the multi-objective loss landscape.
-metrics = agent.train_step(inputs, targets)
+metrics = agent.train_step(inputs, target_data=targets)
 
 print(f"Surprise: {metrics['surprise']:.4f} | Active Experts: {metrics['active_experts']}")
 ```
