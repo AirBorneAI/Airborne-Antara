@@ -18,11 +18,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-from airbornehrs.core import AdaptiveFramework, AdaptiveFrameworkConfig
-from airbornehrs.moe import SparseMoE
+from airborne_antara.core import AdaptiveFramework, AdaptiveFrameworkConfig
+from airborne_antara.moe import SparseMoE
 import numpy as np
 import logging
 import copy
+import os
 
 # Suppress logging
 logging.disable(logging.CRITICAL)
@@ -32,24 +33,33 @@ torch.manual_seed(42)
 np.random.seed(42)
 
 # ============ DATA GENERATION ============
+INPUT_DIM = 50
 def generate_data(task_id, batch_size=32):
-    x = torch.randn(batch_size, 10)
+    # DENSE INPUTS: All dimensions are active random noise
+    # This forces interference because the model sees "garbage" in dims relevant to other tasks
+    x = torch.randn(batch_size, INPUT_DIM)
+    
     if task_id == 'A':
-        y = x.sum(dim=1, keepdim=True)
+        # Task A: Depends on dims 0-10
+        y = x[:, 0:10].sum(dim=1, keepdim=True)
     elif task_id == 'B':
-        y = -x.sum(dim=1, keepdim=True)
+        # Task B: Depends on dims 10-20
+        y = x[:, 10:20].sum(dim=1, keepdim=True)
     elif task_id == 'C':
-        y = (x[:, ::2]).sum(dim=1, keepdim=True)
+        # Task C: Depends on dims 20-30
+        y = x[:, 20:30].sum(dim=1, keepdim=True)
     elif task_id == 'D':
-        y = (x[:, 1::2]).sum(dim=1, keepdim=True)
+        # Task D: Depends on dims 30-40
+        y = x[:, 30:40].sum(dim=1, keepdim=True)
+    
     return x, y
 
 # ============ BASE MODEL ============
 def create_base_model():
     return nn.Sequential(
-        nn.Linear(10, 64), nn.ReLU(),
-        nn.Linear(64, 64), nn.ReLU(),
-        nn.Linear(64, 1)
+        nn.Linear(INPUT_DIM, 128), nn.ReLU(),
+        nn.Linear(128, 128), nn.ReLU(),
+        nn.Linear(128, 1)
     )
 
 # ============ BASELINE IMPLEMENTATIONS ============
@@ -192,7 +202,7 @@ class MoEBaseline(nn.Module):
     def __init__(self, num_experts=4):
         super().__init__()
         base = create_base_model()
-        self.moe = SparseMoE(base, input_dim=10, num_experts=num_experts, top_k=2)
+        self.moe = SparseMoE(base, input_dim=INPUT_DIM, num_experts=num_experts, top_k=2)
         self.optimizer = torch.optim.Adam(self.moe.parameters(), lr=1e-3)
     
     def forward(self, x):
@@ -277,54 +287,72 @@ def compute_avg_final_loss(history, tasks):
 # ============ MAIN BENCHMARK ============
 def run_rigorous_benchmark():
     print("\n" + "="*70)
-    print("ANTARA RIGOROUS BASELINE COMPARISON")
+    print("ANTARA ULTIMATE VERIFICATION SUITE (Academic Rigor)")
     print("="*70)
     
     tasks = ['A', 'B', 'C', 'D']
     results = {}
     
     # 1. Naive Baseline
-    print("\n🔬 [1/5] Naive Baseline (No CL)...")
+    print("\n[1/6] Naive Baseline (No CL)...")
     naive = NaiveBaseline()
     results['Naive'] = run_experiment(naive, tasks, "Naive")
     
     # 2. EWC-Only
-    print("\n🔬 [2/5] EWC-Only...")
+    print("\n[2/6] EWC-Only...")
     ewc = EWCBaseline(ewc_lambda=1000.0)
     results['EWC'] = run_experiment(ewc, tasks, "EWC")
     
     # 3. Replay-Only
-    print("\n🔬 [3/5] Replay-Only...")
+    print("\n[3/6] Replay-Only...")
     replay = ReplayBaseline(buffer_size=500)
     results['Replay'] = run_experiment(replay, tasks, "Replay")
     
     # 4. MoE Baseline
-    print("\n🔬 [4/5] MoE (4 Experts)...")
+    print("\n[4/6] MoE (4 Experts)...")
     moe = MoEBaseline(num_experts=4)
     results['MoE'] = run_experiment(moe, tasks, "MoE")
     
-    # 5. ANTARA - Minimal Mode (Pure EWC, No Dreaming)
-    # THIS CONFIG WINS: Avg Loss=6.13, BWT=-4.23 (best of all methods)
-    print("\n🔬 [5/5] ANTARA (Optimized)...")
-    cfg = AdaptiveFrameworkConfig(
+    # 5. ANTARA-Min (The "Self-Control" Test)
+    # Goal: Prove that our base EWC implementation matches the EWC Baseline (sanity check)
+    print("\n[5/6] ANTARA-Min (EWC Mode, No Dreaming)...")
+    cfg_min = AdaptiveFrameworkConfig(
         device='cpu',
-        # Memory: EWC only - clean, stable, proven
         memory_type='ewc',
         ewc_lambda=1000.0,
-        # Disable all extra features (they add noise on simple benchmarks)
         enable_dreaming=False,
-        dream_interval=9999,
         enable_consciousness=False,
         enable_health_monitor=False,
         use_reptile=False,
         enable_world_model=False,
         use_moe=False,
-        # Standard learning
         learning_rate=1e-3,
         compile_model=False,
     )
-    antara = AdaptiveFramework(create_base_model(), cfg, device='cpu')
-    results['ANTARA'] = run_experiment(antara, tasks, "ANTARA")
+    antara_min = AdaptiveFramework(create_base_model(), cfg_min, device='cpu')
+    results['ANTARA-Min'] = run_experiment(antara_min, tasks, "ANTARA-Min")
+
+    # 6. ANTARA-Full (The "Killer App")
+    # Goal: Prove Dreaming + Hybrid Memory > EWC
+    print("\n[6/6] ANTARA-Full (Dreaming + Consciousness)...")
+    cfg_full = AdaptiveFrameworkConfig(
+        device='cpu',
+        memory_type='hybrid', # EWC + Replay
+        ewc_lambda=1000.0,
+        si_lambda=1.0,
+        enable_dreaming=True,
+        dream_interval=10, # Dream every 10 steps (More frequent replay)
+        dream_batch_size=32,
+        use_prioritized_replay=True,
+        enable_consciousness=True,
+        enable_health_monitor=False, # Keep noise low
+        use_reptile=False,
+        learning_rate=1e-3,
+        compile_model=False,
+    )
+    antara_full = AdaptiveFramework(create_base_model(), cfg_full, device='cpu')
+    results['ANTARA-Full'] = run_experiment(antara_full, tasks, "ANTARA-Full")
+
     
     return results, tasks
 
@@ -379,7 +407,7 @@ def plot_comparison_barchart(results, tasks, filename):
     plt.tight_layout()
     plt.savefig(filename, dpi=150)
     plt.close()
-    print(f"✅ Saved: {filename}")
+    print(f"Saved: {filename}")
 
 def plot_retention_curves(results, tasks, filename):
     """Multi-panel retention curves for all methods."""
@@ -406,12 +434,12 @@ def plot_retention_curves(results, tasks, filename):
     plt.tight_layout()
     plt.savefig(filename, dpi=150)
     plt.close()
-    print(f"✅ Saved: {filename}")
+    print(f"Saved: {filename}")
 
 def print_results_table(results, tasks):
     """Print comprehensive results table."""
     print("\n" + "="*70)
-    print("📊 COMPREHENSIVE RESULTS TABLE")
+    print("== COMPREHENSIVE RESULTS TABLE")
     print("="*70)
     
     # Header
@@ -430,13 +458,14 @@ def print_results_table(results, tasks):
     bwt_scores = {m: compute_bwt(h, s, tasks) for m, (h, s) in results.items()}
     best_method = max(bwt_scores, key=bwt_scores.get)
     
-    print(f"\n🏆 Best BWT: {best_method} ({bwt_scores[best_method]:+.4f})")
+    print(f"\n> Best BWT: {best_method} ({bwt_scores[best_method]:+.4f})")
     
     # ANTARA vs others
-    antara_bwt = bwt_scores['ANTARA']
-    print("\n📈 ANTARA Improvement over Baselines:")
+    antara_bwt = bwt_scores.get('ANTARA-Full', -99.9)
+    if 'ANTARA-Full' not in bwt_scores: antara_bwt = bwt_scores.get('ANTARA', -99.9)
+    print("\n> ANTARA Improvement over Baselines:")
     for method in results:
-        if method != 'ANTARA':
+        if method != 'ANTARA-Full' and method != 'ANTARA':
             other_bwt = bwt_scores[method]
             if other_bwt < 0:
                 improvement = ((other_bwt - antara_bwt) / abs(other_bwt)) * 100
@@ -447,7 +476,7 @@ def print_results_table(results, tasks):
     
     # LaTeX table
     print("\n" + "="*70)
-    print("📋 LATEX TABLE (Copy-Paste)")
+    print("== LATEX TABLE (Copy-Paste)")
     print("="*70)
     print("\\begin{table}[h]")
     print("\\centering")
@@ -459,7 +488,7 @@ def print_results_table(results, tasks):
         avg_loss = compute_avg_final_loss(history, tasks)
         bwt = compute_bwt(history, snapshots, tasks)
         task_losses = [history[t][-1] for t in tasks]
-        bold = "\\textbf" if method == 'ANTARA' else ""
+        bold = "\\textbf" if 'ANTARA' in method else ""
         if bold:
             print(f"\\textbf{{{method}}} & \\textbf{{{avg_loss:.2f}}} & \\textbf{{{bwt:+.2f}}} & {task_losses[0]:.2f} & {task_losses[1]:.2f} & {task_losses[2]:.2f} & {task_losses[3]:.2f} \\\\")
         else:
@@ -474,17 +503,18 @@ def print_results_table(results, tasks):
 if __name__ == "__main__":
     results, tasks = run_rigorous_benchmark()
     
-    # Generate plots
-    plot_comparison_barchart(results, tasks, "tests/rigorous_comparison_barchart.png")
-    plot_retention_curves(results, tasks, "tests/rigorous_retention_curves.png")
+    # Generate plots with absolute paths
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    plot_comparison_barchart(results, tasks, os.path.join(base_dir, "rigorous_comparison_barchart.png"))
+    plot_retention_curves(results, tasks, os.path.join(base_dir, "rigorous_retention_curves.png"))
     
     # Print results
     print_results_table(results, tasks)
     
     print("\n" + "="*70)
-    print("✨ RIGOROUS BENCHMARK COMPLETE")
+    print("+ RIGOROUS BENCHMARK COMPLETE")
     print("="*70)
     print("Generated files:")
-    print("   - tests/rigorous_comparison_barchart.png")
-    print("   - tests/rigorous_retention_curves.png")
+    print(f"   - {os.path.join(base_dir, 'rigorous_comparison_barchart.png')}")
+    print(f"   - {os.path.join(base_dir, 'rigorous_retention_curves.png')}")
     print("="*70)

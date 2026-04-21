@@ -18,9 +18,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-from airbornehrs.core import AdaptiveFramework, AdaptiveFrameworkConfig
+from airborne_antara.core import AdaptiveFramework, AdaptiveFrameworkConfig
 import numpy as np
 import logging
+import os
 
 logging.disable(logging.CRITICAL)
 torch.manual_seed(42)
@@ -266,17 +267,17 @@ def run_realistic_benchmark():
     results = {}
     
     # 1. Naive (no CL)
-    print("🔬 [1/4] Naive (No CL)...")
+    print("[1/4] Naive (No CL)...")
     naive = NaiveClassifier()
     results['Naive'] = run_class_incremental(naive, "Naive")
     
     # 2. EWC Only
-    print("🔬 [2/4] EWC Only...")
+    print("[2/4] EWC Only...")
     ewc = EWCClassifier(ewc_lambda=100.0)
     results['EWC'] = run_class_incremental(ewc, "EWC")
     
     # 3. ANTARA Minimal (EWC mode, no dreaming)
-    print("🔬 [3/4] ANTARA Minimal...")
+    print("[3/4] ANTARA Minimal...")
     cfg_min = AdaptiveFrameworkConfig(
         device='cpu',
         memory_type='ewc',
@@ -292,7 +293,7 @@ def run_realistic_benchmark():
     results['ANTARA-Min'] = run_class_incremental(antara_min, "ANTARA-Min")
     
     # 4. ANTARA with Dreaming (key feature!)
-    print("🔬 [4/4] ANTARA + Dreaming...")
+    print("[4/4] ANTARA + Dreaming...")
     cfg_dream = AdaptiveFrameworkConfig(
         device='cpu',
         memory_type='hybrid',
@@ -356,11 +357,11 @@ def plot_realistic_results(results, filename):
     plt.tight_layout()
     plt.savefig(filename, dpi=150)
     plt.close()
-    print(f"✅ Saved: {filename}")
+    print(f"Saved: {filename}")
 
 def print_realistic_results(results):
     print("\n" + "="*70)
-    print("📊 REALISTIC BENCHMARK RESULTS")
+    print("REALISTIC BENCHMARK RESULTS")
     print("="*70)
     
     print(f"\n{'Method':<20} | {'Final Acc':>10} | {'Avg Acc':>10} | Winner?")
@@ -369,7 +370,7 @@ def print_realistic_results(results):
     for method, history in results.items():
         final_acc = history[-1]
         avg_acc = np.mean(history)
-        winner = "🏆" if final_acc == max([r[-1] for r in results.values()]) else ""
+        winner = "*WIN*" if final_acc == max([r[-1] for r in results.values()]) else ""
         print(f"{method:<20} | {final_acc:>9.1f}% | {avg_acc:>9.1f}% | {winner}")
     
     print("-"*55)
@@ -380,18 +381,20 @@ def print_realistic_results(results):
     
     if dream_acc > min_acc:
         improvement = dream_acc - min_acc
-        print(f"\n🎯 DREAMING ADVANTAGE CONFIRMED!")
+        print(f"\n> DREAMING ADVANTAGE CONFIRMED!")
         print(f"   ANTARA+Dream: {dream_acc:.1f}%")
         print(f"   ANTARA-Min:   {min_acc:.1f}%")
         print(f"   Improvement:  +{improvement:.1f}%")
     else:
-        print(f"\n⚠️ Dreaming did not improve over minimal.")
+        print(f"\n! Dreaming did not improve over minimal.")
 
 if __name__ == "__main__":
     results = run_realistic_benchmark()
-    plot_realistic_results(results, "tests/realistic_benchmark.png")
+    # Use absolute paths
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    plot_realistic_results(results, os.path.join(base_dir, "realistic_benchmark.png"))
     print_realistic_results(results)
     
     print("\n" + "="*70)
-    print("✨ REALISTIC SYNTHETIC BENCHMARK COMPLETE")
+    print("+ REALISTIC SYNTHETIC BENCHMARK COMPLETE")
     print("="*70)

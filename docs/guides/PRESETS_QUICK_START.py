@@ -10,7 +10,7 @@ Copy-paste examples for common scenarios.
 # 1. PRODUCTION SETUP
 # ===================
 # For: Live systems, accuracy-critical, multi-domain
-from airbornehrs import AdaptiveFramework, PRESETS
+from airborne_antara import AdaptiveFramework, PRESETS
 import torch
 
 model = YourModel()
@@ -211,7 +211,7 @@ config = PRESETS.creativity_boost().merge(PRESETS.stable()).customize(
 
 # ============ PRESET COMPARISON ============
 
-from airbornehrs import compare_presets, list_presets
+from airborne_antara import compare_presets, list_presets
 
 # List all presets
 presets = list_presets()
@@ -250,7 +250,7 @@ print(comparison)
 
 # ============ LOADING BY NAME ============
 
-from airbornehrs import load_preset
+from airborne_antara import load_preset
 
 # Load by string
 config = load_preset('production')
@@ -306,7 +306,7 @@ else:
 # ============ MONITORING ============
 
 # Track framework metrics during training
-from airbornehrs import AdaptiveFramework, PRESETS
+from airborne_antara import AdaptiveFramework, PRESETS
 
 config = PRESETS.production()
 framework = AdaptiveFramework(model, config=config)
@@ -358,7 +358,7 @@ def train_production():
 
 # Quick test to verify preset works
 def test_preset(preset_name: str):
-    from airbornehrs import load_preset
+    from airborne_antara import load_preset
     import torch
     
     config = load_preset(preset_name)

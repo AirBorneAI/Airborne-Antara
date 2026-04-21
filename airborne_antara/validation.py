@@ -9,7 +9,7 @@ This module catches config errors early, before they cause cryptic runtime failu
 
 import logging
 from typing import Tuple, List, Optional
-from antara import AdaptiveFrameworkConfig
+from .core import AdaptiveFrameworkConfig
 
 
 class ConfigValidator:
@@ -243,7 +243,7 @@ if __name__ == "__main__":
     print("INTEGRATION TESTS (V8.1 Fixes)")
     print("=" * 60)
     
-    from antara.core import AdaptiveFramework
+    from .core import AdaptiveFramework
     
     def test_feedback_buffer_population():
         """Test 1: Verify feedback_buffer is populated during training."""

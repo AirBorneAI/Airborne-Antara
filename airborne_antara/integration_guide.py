@@ -18,7 +18,7 @@ import torch.nn as nn
 from typing import Optional, Dict, Any
 from .self_awareness_v2 import (
     HumanLikeSelfAwarenessWrapper,
-    MetaCognitiveState,
+    MetacognitiveState,
     ConfidenceSignal,
     AdaptiveLearningController,
     SelfImprovementPlanner
@@ -85,7 +85,7 @@ class MirrorMindWithSelfAwareness:
         adaptive_multiplier = self.self_awareness.compute_adaptive_lr(domain_id) / self.self_awareness.learning_controller.base_lr
         return base_lr * adaptive_multiplier
     
-    def get_awareness_state(self) -> MetaCognitiveState:
+    def get_awareness_state(self) -> MetacognitiveState:
         """Get current metacognitive state"""
         return self.self_awareness.get_awareness_state()
     
@@ -130,6 +130,7 @@ def training_loop_with_awareness(
     train_loader,
     optimizer,
     criterion,
+    device: Optional[torch.device] = None,
     num_epochs: int = 10,
     enable_adaptive_lr: bool = True,
     enable_priority_sampling: bool = True,
@@ -147,6 +148,14 @@ def training_loop_with_awareness(
     
     # Wrap model with self-awareness
     aware_model = MirrorMindWithSelfAwareness(model)
+
+    if device is None:
+        try:
+            device = next(model.parameters()).device
+        except StopIteration:
+            device = torch.device('cpu')
+    elif isinstance(device, str):
+        device = torch.device(device)
     
     # For priority sampling
     sample_importance_weights = []
@@ -263,7 +272,7 @@ class SelfAwarenessHook:
         """Observe a batch and update awareness"""
         return self.awareness_wrapper.observe(output, target, **kwargs)
     
-    def get_awareness(self) -> MetaCognitiveState:
+    def get_awareness(self) -> MetacognitiveState:
         """Get current awareness state"""
         return self.awareness_wrapper.get_awareness_state()
 

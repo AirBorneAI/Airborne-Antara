@@ -11,7 +11,7 @@ Key Components:
     - ProductionAdapter: Simplified API for inference with online learning
 """
 
-__version__ = "0.0.1"
+__version__ = "0.0.3"
 __license__ = "MIT"
 __author__ = "Suryaansh Prithvijit Singh"
 
@@ -40,15 +40,20 @@ def __getattr__(name):
     # ==================== CONSCIOUSNESS (V2 Backend) ====================
     # Maps 'ConsciousnessCore' to the new V2 implementation automatically
     elif name in ['ConsciousnessCore', 'EnhancedConsciousnessCore', 'EmotionalState', 'EmotionalSystem', 'MetaCognition', 'EpisodicMemory', 'SelfModel', 'Personality', 'Introspection', 'AdaptiveAwareness']:
-        from .consciousness_v2 import EnhancedConsciousnessCore, EmotionalState, EmotionalSystem, MetaCognition, EpisodicMemory, SelfModel, Personality, Introspection, AdaptiveAwareness
+        from .consciousness_v2 import EnhancedConsciousnessCore, EmotionalState, EmotionalSystem, MetaCognition, EpisodicMemory, SelfModel, Personality, AdaptiveAwareness
         # Alias legacy name to new core
         if name == 'ConsciousnessCore':
             return EnhancedConsciousnessCore
+        # Backward-compatible alias to a real exported symbol.
+        if name == 'Introspection':
+            return MetaCognition
         return locals()[name]
 
     # ==================== SELF AWARENESS (High-Level Wrapper) ====================
-    elif name in ['HumanLikeSelfAwarenessWrapper', 'MetaCognitiveAwarenessEngine', 'MetaCognitiveState', 'ConfidenceSignal', 'CompetenceSignal', 'AdaptiveLearningController', 'SelfImprovementPlanner', 'AdaptiveAttentionMechanism', 'OutOfDistributionDetector']:
-        from .self_awareness_v2 import HumanLikeSelfAwarenessWrapper, MetaCognitiveAwarenessEngine, MetaCognitiveState, ConfidenceSignal, CompetenceSignal, AdaptiveLearningController, SelfImprovementPlanner, AdaptiveAttentionMechanism, OutOfDistributionDetector
+    elif name in ['HumanLikeSelfAwarenessWrapper', 'MetaCognitiveAwarenessEngine', 'MetaCognitiveState', 'MetacognitiveState', 'ConfidenceSignal', 'CompetenceSignal', 'AdaptiveLearningController', 'SelfImprovementPlanner', 'AdaptiveAttentionMechanism', 'OutOfDistributionDetector']:
+        from .self_awareness_v2 import HumanLikeSelfAwarenessWrapper, MetaCognitiveAwarenessEngine, MetacognitiveState, ConfidenceSignal, CompetenceSignal, AdaptiveLearningController, SelfImprovementPlanner, AdaptiveAttentionMechanism, OutOfDistributionDetector
+        if name == 'MetaCognitiveState':
+            return MetacognitiveState
         return locals()[name]
     
     # ==================== CONFIGURATION & PRESETS ====================
@@ -111,6 +116,7 @@ __all__ = [
     # ==================== SELF-AWARENESS LAYER ====================
     'HumanLikeSelfAwarenessWrapper',
     'MetaCognitiveAwarenessEngine',
+    'MetacognitiveState',
     'MetaCognitiveState',
     'ConfidenceSignal',
     'CompetenceSignal',

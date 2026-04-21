@@ -20,7 +20,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-from airbornehrs.core import AdaptiveFramework, AdaptiveFrameworkConfig
+from airborne_antara.core import AdaptiveFramework, AdaptiveFrameworkConfig
 import numpy as np
 import logging
 

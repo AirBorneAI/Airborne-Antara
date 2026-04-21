@@ -1,5 +1,5 @@
 
-# API Reference (v1.1.1 "Sentient" Edition)
+# API Reference (v1.1.1 "Adaptive" Edition)
 
 ## Overview
 
@@ -7,7 +7,7 @@
 
 1. **AdaptiveFramework** : Core learner with introspection and online adaptation
 2. **MetaController** : Advanced adaptation orchestration (learning to learn)
-3. **ConsciousnessCore** : System 2 Thinking with recursive global workspace
+3. **MetaCognitionCore** : Recursive State Analysis with global workspace
 4. **ProductionAdapter** : Simplified interface for production deployment
 
 ## AdaptiveFramework
@@ -452,7 +452,7 @@ If you use airborne-antara in your research or applications:
 
 ```
 @software{airbornehrs2026,
-  title = {airborne-antara v1.1.1 Sentient: Production-Ready Adaptive Meta-Learning Framework},
+  title = {airborne-antara v1.1.1 Adaptive: Production-Ready Adaptive Meta-Learning Framework},
   author = {Singh, Suryaansh Prithvijit},
   year = {2026},
   version = {1.1.1},

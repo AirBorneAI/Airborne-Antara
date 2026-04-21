@@ -115,6 +115,7 @@ class AdaptiveFrameworkConfig:
     si_xi: float = 1e-3
     use_graph_memory: bool = False # [V9.0] Graph-Based Episodic Memory
     graph_memory_threshold: float = 0.85
+    use_ogd: bool = False # [V9.1] Orthogonal Gradient Descent projection
 
     # [V8.0] Optimization
     use_lookahead: bool = True
@@ -162,8 +163,8 @@ class AdaptiveFrameworkConfig:
     def production(cls):
         return cls(
             model_dim=512, 
-            device='cuda', 
-            use_amp=True, 
+            device='cuda' if torch.cuda.is_available() else 'cpu',
+            use_amp=torch.cuda.is_available(),
             compile_model=True,
             memory_type='hybrid',
             use_prioritized_replay=True,
@@ -409,10 +410,14 @@ class AdaptiveFramework(nn.Module):
             ewc_lambda=getattr(config, 'ewc_lambda', 0.4),
             consolidation_criterion=getattr(config, 'consolidation_criterion', 'hybrid'),
             use_graph_memory=getattr(config, 'use_graph_memory', False),
+            use_ogd=getattr(config, 'use_ogd', False),
             graph_threshold=getattr(config, 'graph_memory_threshold', 0.85),
             feature_dim=config.model_dim
         )
-        self.logger.info(f"[BRAIN] Unified Memory System Online ({config.memory_type}, Graph={config.use_graph_memory})")
+        self.logger.info(
+            f"[BRAIN] Unified Memory System Online "
+            f"({getattr(config, 'memory_type', 'hybrid')}, Graph={getattr(config, 'use_graph_memory', False)})"
+        )
         
         # 6. Experience Replay
         self.feedback_buffer = FeedbackBuffer(config, self.device)
@@ -533,7 +538,7 @@ class AdaptiveFramework(nn.Module):
             self.lookahead_step = 0
             self.slow_weights = {n: p.data.clone().detach() for n, p in self.model.named_parameters() if p.requires_grad}
 
-        self.logger.info("AirborneHRS Framework Initialized (V8.0 Sentient Edition)")
+        self.logger.info("Airborne-Antara Framework Initialized (V8.0 Sentient Edition)")
 
     def _setup_logging(self):
         logger = logging.getLogger('AdaptiveFramework')
@@ -1069,6 +1074,8 @@ class AdaptiveFramework(nn.Module):
             if hasattr(outputs, 'logits'): logits = outputs.logits
             elif isinstance(outputs, tuple): logits = outputs[0]
             else: logits = outputs
+
+            metrics = {}
             
             # Loss Calculation
             # Loss Calculation (Universal V2 - Synced with train_step)
@@ -1115,7 +1122,18 @@ class AdaptiveFramework(nn.Module):
                 loss += aux
                 metrics['aux_loss'] = aux.item() if hasattr(aux, 'item') else 0.0
 
-            loss.backward()
+            # [V9.1] FIX: Add Memory Regularization (EWC/SI) to Dream Loss
+            # Dreaming must respect constraints of previous tasks!
+            reg_loss = torch.tensor(0.0, device=self.device)
+            if self.memory:
+                reg_loss = self.memory.compute_penalty(
+                   adaptive_mode='DREAM',
+                   step_in_mode=0
+                )
+                metrics['reg_loss'] = reg_loss.item()
+
+            total_loss = loss + reg_loss
+            total_loss.backward()
             
             # Debug Gradients
             # total_norm = 0
@@ -1266,7 +1284,11 @@ class AdaptiveFramework(nn.Module):
             
             # 4. Expert Usage
             if hasattr(self.model, 'get_expert_usage'):
-                diagnostics['expert_usage'] = self.model.get_expert_usage().cpu().numpy()
+                expert_usage = self.model.get_expert_usage()
+                if isinstance(expert_usage, torch.Tensor):
+                    diagnostics['expert_usage'] = expert_usage.detach().cpu().numpy()
+                else:
+                    diagnostics['expert_usage'] = np.asarray(expert_usage)
 
             # 5. [V9.2] Live Memory Injection (The "Never Forget" Mechanism)
             # 5. [V9.2] Live Memory Injection (The "Never Forget" Mechanism)
@@ -1351,7 +1373,7 @@ class AdaptiveFramework(nn.Module):
                 query_key = pred
         
         cons = diagnostics.get('consciousness', {})
-        entropy = cons.get('entropy', 0.0)
+        entropy = cons.get('entropy', cons.get('uncertainty', 0.0))
         
         if entropy < threshold:
             diagnostics['mode'] = 'System 1 (Intuitive)'

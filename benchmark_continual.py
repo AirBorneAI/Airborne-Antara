@@ -14,10 +14,10 @@ import logging
 import json
 import time
 import traceback
-# CRITICAL: Force use of local airbornehrs package (ignore pip installed version)
+# CRITICAL: Force use of local airborne_antara package (ignore pip installed version)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from airbornehrs.core import AdaptiveFramework, AdaptiveFrameworkConfig
+from airborne_antara.core import AdaptiveFramework, AdaptiveFrameworkConfig
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 RESULTS_FILE = "benchmark_results.json"

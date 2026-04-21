@@ -21,3 +21,4 @@ tools/
 
 data/
 research/
+publish_pypi.py

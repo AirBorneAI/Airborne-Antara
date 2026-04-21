@@ -30,8 +30,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-from airbornehrs.core import AdaptiveFramework, AdaptiveFrameworkConfig
-from airbornehrs.presets import PRESETS
+from airborne_antara.core import AdaptiveFramework, AdaptiveFrameworkConfig
+from airborne_antara.presets import PRESETS
 import numpy as np
 import logging
 import time
@@ -462,7 +462,7 @@ def print_best_configs(configs_used, all_metrics):
     if best_overall in configs_used:
         cfg = configs_used[best_overall]
         print(f"""
-from airbornehrs.core import AdaptiveFramework, AdaptiveFrameworkConfig
+from airborne_antara.core import AdaptiveFramework, AdaptiveFrameworkConfig
 
 # OPTIMAL CONFIG (based on benchmark results)
 optimal_config = AdaptiveFrameworkConfig(

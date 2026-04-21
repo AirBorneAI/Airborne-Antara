@@ -19,8 +19,8 @@ from pathlib import Path
 import logging
 import threading
 
-from antara.core import AdaptiveFramework, AdaptiveFrameworkConfig
-from antara.meta_controller import MetaController, MetaControllerConfig
+from .core import AdaptiveFramework, AdaptiveFrameworkConfig
+from .meta_controller import MetaController, MetaControllerConfig
 
 
 class InferenceMode:
@@ -149,7 +149,7 @@ class ProductionAdapter:
         self.framework.model.train()
         
         # A. Core Update
-        metrics = self.framework.train_step(inputs, targets)
+        metrics = self.framework.train_step(inputs, target_data=targets)
         
         # B. Meta Update
         if self.meta_controller:
@@ -168,7 +168,7 @@ class ProductionAdapter:
         Get uncertainty estimates (Log Variance) for predictions.
         """
         with torch.inference_mode():
-            _, log_var = self.framework.forward(input_data)
+            _, log_var, _ = self.framework.forward(input_data)
         return log_var
     
     def save_checkpoint(self, path: str):
@@ -222,8 +222,9 @@ class ProductionAdapter:
              # Standard load
              framework.model.load_state_dict(model_state)
         
-        if 'optimizer_state' in checkpoint:
-            framework.optimizer.load_state_dict(checkpoint['optimizer_state'])
+        optimizer_state = checkpoint.get('optimizer_state', checkpoint.get('optimizer'))
+        if optimizer_state is not None:
+            framework.optimizer.load_state_dict(optimizer_state)
             
         framework.step_count = checkpoint.get('step_count', 0)
         

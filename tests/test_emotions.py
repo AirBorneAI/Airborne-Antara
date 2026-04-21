@@ -1,7 +1,7 @@
 
 import torch
 import torch.nn as nn
-from airbornehrs.core import AdaptiveFramework, AdaptiveFrameworkConfig
+from airborne_antara.core import AdaptiveFramework, AdaptiveFrameworkConfig
 import logging
 
 logging.basicConfig(level=logging.INFO)

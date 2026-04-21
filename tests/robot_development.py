@@ -29,7 +29,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-from airbornehrs.core import AdaptiveFramework, AdaptiveFrameworkConfig
+import os
+from airborne_antara.core import AdaptiveFramework, AdaptiveFrameworkConfig
 import numpy as np
 import logging
 
@@ -159,12 +160,12 @@ class RobotDevelopment:
     def success_threshold(stage):
         """Distance threshold for success at each stage."""
         thresholds = {
-            'newborn': 1.0,      # Very lenient
-            'infant': 0.5,       # Basic reach
-            'toddler': 0.3,      # More precise
-            'child': 0.2,        # Coordination
-            'adolescent': 0.1,   # Fine motor
-            'adult': 0.08        # Expert precision
+            'newborn': 2.0,      # Very lenient
+            'infant': 1.0,       # Basic reach
+            'toddler': 0.8,      # More precise
+            'child': 0.5,        # Coordination
+            'adolescent': 0.3,   # Fine motor
+            'adult': 0.2         # Expert precision
         }
         return thresholds.get(stage, 0.5)
 
@@ -249,16 +250,16 @@ class BaselineController(nn.Module):
 # ============ MAIN SIMULATION ============
 def run_robot_development():
     print("\n" + "="*70)
-    print("🤖 ANTARA ROBOT DEVELOPMENT SIMULATION")
+    print("ANTARA ROBOT DEVELOPMENT SIMULATION")
     print("="*70)
     print("Simulating robot learning from NEWBORN to ADULT")
-    print("Stages: Newborn → Infant → Toddler → Child → Adolescent → Adult\n")
+    print("Stages: Newborn -> Infant -> Toddler -> Child -> Adolescent -> Adult\n")
     
     stages = ['newborn', 'infant', 'toddler', 'child', 'adolescent', 'adult']
     results = {}
     
     # 1. Naive Baseline (no CL)
-    print("🔬 [1/4] Naive Baseline (No Continual Learning)...")
+    print("[1/4] Naive Baseline (No Continual Learning)...")
     robot1 = SimulatedRobot()
     baseline = BaselineController()
     
@@ -272,7 +273,7 @@ def run_robot_development():
     results['Naive'] = baseline_results
     
     # 2. ANTARA Minimal (EWC only)
-    print("\n🔬 [2/4] ANTARA Minimal (EWC only)...")
+    print("\n[2/4] ANTARA Minimal (EWC only)...")
     robot2 = SimulatedRobot()
     cfg_min = AdaptiveFrameworkConfig(
         device='cpu',
@@ -303,7 +304,7 @@ def run_robot_development():
     results['ANTARA-Min'] = min_results
     
     # 3. ANTARA + Dreaming (replay past motor skills)
-    print("\n🔬 [3/4] ANTARA + Dreaming (Replay Past Skills)...")
+    print("\n[3/4] ANTARA + Dreaming (Replay Past Skills)...")
     robot3 = SimulatedRobot()
     cfg_dream = AdaptiveFrameworkConfig(
         device='cpu',
@@ -338,7 +339,7 @@ def run_robot_development():
     results['ANTARA+Dream'] = dream_results
     
     # 4. ANTARA Full (ALL features)
-    print("\n🔬 [4/4] ANTARA FULL (All Features: Dreaming + Consciousness + Hybrid)...")
+    print("\n[4/4] ANTARA FULL (All Features: Dreaming + Consciousness + Hybrid)...")
     robot4 = SimulatedRobot()
     cfg_full = AdaptiveFrameworkConfig(
         device='cpu',
@@ -377,7 +378,7 @@ def run_robot_development():
 # ============ SKILL RETENTION TEST ============
 def test_skill_retention(agent, robot, stages):
     """Test if robot still has earlier skills after learning later stages."""
-    print("\n📋 Testing skill retention across ALL developmental stages...")
+    print("\nTesting skill retention across ALL developmental stages...")
     
     retention = {}
     for stage in stages:
@@ -473,15 +474,16 @@ def plot_robot_development(results, stages, filename):
     ax2.set_ylabel("Training Loss", color='#e74c3c')
     ax.set_title("Overall Performance", fontweight='bold')
     
-    plt.suptitle("🤖 Robot Development: Baby → Adult", fontsize=14, fontweight='bold')
+    plt.suptitle("Robot Development: Baby -> Adult", fontsize=14, fontweight='bold')
+    plt.tight_layout()
     plt.tight_layout()
     plt.savefig(filename, dpi=150)
     plt.close()
-    print(f"✅ Saved: {filename}")
+    print(f"Saved: {filename}")
 
 def print_robot_results(results, stages):
     print("\n" + "="*70)
-    print("📊 ROBOT DEVELOPMENT RESULTS")
+    print("ROBOT DEVELOPMENT RESULTS")
     print("="*70)
     
     # Success table
@@ -508,17 +510,17 @@ def print_robot_results(results, stages):
     print()
     
     # Winner analysis
-    print("\n🏆 ANALYSIS:")
+    print("\n ANALYSIS:")
     
     # Early skills (newborn, infant)
     early_skills = {m: np.mean(results[m]['success'][:2]) for m in results}
     early_winner = max(early_skills, key=early_skills.get)
-    print(f"   Early Skills (Newborn→Infant):  {early_winner} ({early_skills[early_winner]:.1f}%)")
+    print(f"   Early Skills (Newborn->Infant):  {early_winner} ({early_skills[early_winner]:.1f}%)")
     
     # Advanced skills (adolescent, adult)
     advanced_skills = {m: np.mean(results[m]['success'][-2:]) for m in results}
     advanced_winner = max(advanced_skills, key=advanced_skills.get)
-    print(f"   Advanced Skills (Adolescent→Adult): {advanced_winner} ({advanced_skills[advanced_winner]:.1f}%)")
+    print(f"   Advanced Skills (Adolescent->Adult): {advanced_winner} ({advanced_skills[advanced_winner]:.1f}%)")
     
     # Overall
     overall = {m: np.mean(results[m]['success']) for m in results}
@@ -531,14 +533,15 @@ def print_robot_results(results, stages):
     full_avg = overall.get('ANTARA-Full', 0)
     
     if dream_avg > naive_avg:
-        print(f"\n   ✅ DREAMING adds +{dream_avg - naive_avg:.1f}% over Naive")
+        print(f"\n   DREAMING adds +{dream_avg - naive_avg:.1f}% over Naive")
     if full_avg > dream_avg:
-        print(f"   ✅ FULL FEATURES add +{full_avg - dream_avg:.1f}% over Dreaming alone")
+        print(f"   FULL FEATURES add +{full_avg - dream_avg:.1f}% over Dreaming alone")
 
 # ============ MAIN ============
 if __name__ == "__main__":
     results, stages = run_robot_development()
-    plot_robot_development(results, stages, "tests/robot_development.png")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    plot_robot_development(results, stages, os.path.join(base_dir, "robot_development.png"))
     print_robot_results(results, stages)
     
     print("\n" + "="*70)

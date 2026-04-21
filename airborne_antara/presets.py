@@ -7,7 +7,7 @@ Each preset combines years of research into optimal hyperparameter values.
 
     USAGE:
     ------
-    from antara import AdaptiveFramework, PRESETS
+    from airborne_antara import AdaptiveFramework, PRESETS
     
     # One-liner: Use production preset
     framework = AdaptiveFramework(model, config=PRESETS.production())
@@ -181,7 +181,7 @@ class PresetManager:
     Manager class providing access to all presets.
     
     Usage:
-        from antara.presets import PRESETS
+        from airborne_antara.presets import PRESETS
         config = PRESETS.production()
         config = PRESETS.fast().customize(learning_rate=5e-4)
     """

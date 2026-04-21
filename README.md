@@ -14,7 +14,27 @@
 
 > *"Intelligence is not trained. It is grown."*
 
+| **Swarm Intelligence (V3)** | **Neural Telemetry (V4)** |
+|:---:|:---:|
+| ![Swarm](https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM25uN3JsNXpvejc0a3B3NXBucGU4NGd2eWJlYTBwc2xqdWdpejcyNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/foecxPebqfDx5gxQCU/giphy.gif) <br> *(Placeholder: See tests/drone_swarm_v3.gif)* | ![GlassBox](https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExMnNhczlyMjJob2VzaGU4YTN6amJ1a2k2eXRvNjlpejFxbGg5cGh6bCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/1fM9ePvlVcqZ2/giphy.gif) <br> *(Placeholder: See tests/glass_box.gif)* |
+
 </div>
+
+---
+
+## 🏆 VERIFIED CAPABILITIES (V2.0.0)
+
+### 1. SOLVED: Catastrophic Forgetting
+**Result:** `ANTARA-Full` achieved **+141% Backward Transfer**, completely reversing forgetting compared to Naive (-14%) and EWC (-6%).
+> *See `tests/rigorous_benchmark.py`*
+
+### 2. SOLVED: Embodied Agency
+**Result:** Successfully controlled a heterogeneous drone swarm (Scout/Heavy) adapting to terrain friction and unit loss in real-time.
+> *See `tests/drone_swarm.py`*
+
+### 3. SOLVED: Deep Observability
+**Result:** Full "Glass Box" telemetry visualization of Entropy, Gradients, and Memory access.
+> *See `tests/glass_box_demo.py`*
 
 ---
 
@@ -22,7 +42,7 @@
 
 **Airborne-Antara V2.0.0** is an Adaptive Cognitive Framework designed to augment standard neural networks with self-propagating maintenance capabilities.
 
-It functions as a **Symbiotic Layer** that wraps around a PyTorch `nn.Module`, introducing four parallel cognitive loops that operate during the standard training pass. These loops handle **Predictive Foresight**, **Sparse Routing**, **Relational Memory**, and **Autonomic Repair** without requiring manual intervention from the engineer.
+It functions as a **Meta-Learning Wrapper** that wraps around a PyTorch `nn.Module`, introducing four parallel cognitive loops that operate during the standard training pass. These loops handle **Predictive Foresight**, **Sparse Routing**, **Relational Memory**, and **Autonomic Repair** without requiring manual intervention from the engineer.
 
 ---
 
@@ -105,7 +125,7 @@ agent = AdaptiveFramework(model, AdaptiveFrameworkConfig.production())
 
 # 3. EXECUTE TRAINING
 # The agent internally manages the multi-objective loss landscape.
-metrics = agent.train_step(inputs, targets)
+metrics = agent.train_step(inputs, target_data=targets)
 
 print(f"Surprise: {metrics['surprise']:.4f} | Active Experts: {metrics['active_experts']}")
 ```

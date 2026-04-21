@@ -1,13 +1,14 @@
 import torch
 import torch.nn as nn
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import uvicorn
 import os
 
-# Import AirborneHRS
-from airbornehrs.core import AdaptiveFramework, AdaptiveFrameworkConfig
+# Import Airborne-Antara
+from airborne_antara.core import AdaptiveFramework, AdaptiveFrameworkConfig
 
 # ==================== 1. DEFINE YOUR MODEL ====================
 # In a real app, this would be your custom neural network
@@ -24,7 +25,7 @@ class CognitiveAgent(nn.Module):
         return self.net(x)
 
 # ==================== 2. API CONFIGURATION ====================
-app = FastAPI(title="AirborneHRS Sentiment Node", version="9.1")
+app = FastAPI(title="Airborne-Antara Sentiment Node", version="9.1")
 
 # Global State
 framework: Optional[AdaptiveFramework] = None

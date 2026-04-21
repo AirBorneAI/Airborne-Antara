@@ -17,18 +17,18 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Version info
-VERSION = "0.0.1"
+VERSION = "0.0.3"
 FRAMEWORK_NAME = "ANTARA"
 TAGLINE = "Adaptive Neural Telemetry & Research Assistant"
 
 # Detailed ASCII Art
 LOGO = r"""
-  █████╗ ██╗██████╗ ██████╗  ██████╗ ██████╗ ███╗   ██╗███████╗
- ██╔══██╗██║██╔══██╗██╔══██╗██╔═══██╗██╔══██╗████╗  ██║██╔════╝
-███████║██║██████╔╝██████╔╝██║   ██║██████╔╝██╔██╗ ██║█████╗  
-██╔══██║██║██╔══██╗██╔══██╗██║   ██║██╔══██╗██║╚██╗██║██╔══╝  
- ██║  ██║██║██║  ██║██████╔╝╚██████╔╝██║  ██║██║ ╚████║███████╗
- ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝
+   _____    _______________________ __________    _____   
+  /  _  \   \      \__    ___/  _  \\______   \  /  _  \  
+ /  /_\  \  /   |   \|    | /  /_\  \|       _/ /  /_\  \ 
+/    |    \/    |    \    |/    |    \    |   \/    |    \
+\____|__  /\____|__  /____|\____|__  /____|_  /\____|__  /
+        \/         \/              \/       \/         \/ 
 """
 
 def ensure_rich() -> bool:
@@ -302,7 +302,7 @@ continuous memory and emotional intelligence.
 [bold #FF4444]Key Innovation:[/bold #FF4444]
 • [red]Prevents Catastrophic Forgetting[/red] - Learns new tasks without losing old knowledge
 • [red]Adaptive Learning Rates[/red] - Adjusts learning intensity based on confidence
-• [red]Consciousness Layer[/red] - Emotional states guide learning decisions
+• [red]Recursive State Monitoring[/red] - Internal states guide learning decisions
 • [red]Predictive World Model[/red] - Anticipates future states (I-JEPA architecture)
 
 [bold #FF4444]Research Foundation:[/bold #FF4444]
@@ -408,7 +408,7 @@ def create_features_panel():
 
 [bold #FF4444]🧠 Cognitive Systems:[/bold #FF4444]
   [red]✓[/red] Meta-Learning via Reptile Algorithm
-  [red]✓[/red] Consciousness Layer with 7 Emotional States
+  [red]✓[/red] Recursive State Monitoring
   [red]✓[/red] World Model for Predictive Foresight (I-JEPA)
   [red]✓[/red] Hierarchical Mixture-of-Experts (Sparse Routing)
 
@@ -416,7 +416,7 @@ def create_features_panel():
   [red]✓[/red] Elastic Weight Consolidation (EWC)
   [red]✓[/red] Synaptic Intelligence (SI)
   [red]✓[/red] Relational Graph Memory (Semantic Clustering)
-  [red]✓[/red] Prioritized Experience Replay (Dreams)
+  [red]✓[/red] Prioritized Experience Replay (Generative Replay)
 
 [bold #FF4444]⚡ Adaptive Systems:[/bold #FF4444]
   [red]✓[/red] Dynamic Learning Rate Modulation

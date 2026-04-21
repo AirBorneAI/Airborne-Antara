@@ -1,4 +1,4 @@
-﻿# QUICK REFERENCE CARD: v1.1.1 "Sentient" Edition
+﻿# QUICK REFERENCE CARD: v1.1.1 "Adaptive" Edition
 
 **Print this card and keep it visible while working.**
 
@@ -7,10 +7,10 @@
 ## THE SITUATION (Updated January 2026)
 
 ```
-Current Version:  v1.1.1 "Sentient" Edition
+Current Version:  v1.1.1 "Adaptive" Edition
 Status:           ✅ PRODUCTION READY
 SOTA Benchmarks:  5/5 PASSED
-Key Features:     System 2 Thinking, Consciousness Core, Unified Memory
+Key Features:     Recursive Analysis, Meta-Cognition Core, Unified Memory
 ```
 
 ---
@@ -100,7 +100,7 @@ Timeline:  Week 3-6
 
 ### Task 1: Publish Paper (30h, +0.3pts)
 ```
-Title:     "Consciousness for Neural Networks" or "Surprise-Driven EWC"
+Title:     "Recursive Meta-Learning for Neural Networks" or "Surprise-Driven EWC"
 Submit:    ArXiv first (free), then NeurIPS/ICML workshop
 Timeline:  Week 7-14
 Status:    ⏸️ Ready to execute
@@ -139,7 +139,7 @@ Status:    ⏸️ Ready to execute
 ### Task 1: Optimize Inference (30h, +0.15pts)
 ```
 Goal:      15% → <5% overhead
-Methods:   Inference-only mode, disable consciousness, cache Fisher
+Methods:   Inference-only mode, disable meta-cognition, cache Fisher
 Result:    Production use becomes viable
 Timeline:  Week 15-20
 Status:    ⏸️ Ready to execute
@@ -319,4 +319,4 @@ YOU'LL HIT 10/10.
 
 *Quick Reference Card*  
 *Print and keep visible while executing roadmap*  
-*Updated: January 5, 2026 (V8.0 Sentient Edition)*
+*Updated: January 5, 2026 (V8.0 Adaptive Edition)*

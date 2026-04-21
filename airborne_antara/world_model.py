@@ -1,5 +1,5 @@
 """
-AirborneHRS V9.0 - World Modeling Module (Synthetic Intuition)
+Airborne-Antara V9.0 - World Modeling Module (Synthetic Intuition)
 ==============================================================
 Implements Joint-Embedding Predictive Architecture (I-JEPA) components
 to enable the framework to forecast its own future latent states.
