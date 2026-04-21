@@ -584,6 +584,12 @@ class UnifiedMemoryHandler:
                 
         # 2. Run Forward Pass in controlled batches
         self.model.eval()
+        
+        # [V8.3] Surgical: Activate internal mode to bypass expensive cognitive loops
+        orig_internal_mode = getattr(self.model, '_internal_consolidation_mode', False)
+        if hasattr(self.model, '_internal_consolidation_mode'):
+            self.model._internal_consolidation_mode = True
+            
         try:
             for i in range(0, len(samples), batch_size):
                 batch = samples[i:i + batch_size]
@@ -614,6 +620,8 @@ class UnifiedMemoryHandler:
         finally:
             for h in hooks: h.remove()
             activations.clear()
+            if hasattr(self.model, '_internal_consolidation_mode'):
+                self.model._internal_consolidation_mode = orig_internal_mode
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
 

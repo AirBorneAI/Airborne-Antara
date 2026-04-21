@@ -677,16 +677,23 @@ class AdaptiveFramework(nn.Module):
             global_state = torch.nan_to_num(global_state, nan=0.0)
             
             # Introspection Step
-            # [V8.3] Hardened: Only accumulate gradients during training to prevent memory leaks
-            if self.training:
+            # [V8.3] Surgical Hardening: Skip modifiers and accumulation in internal maintenance mode
+            if self._internal_consolidation_mode:
+                log_var, action = torch.tensor(0.0), torch.tensor([0.0, 0.0])
+                self.current_modifiers = action # [2]
+                affine_modifiers = action.detach()
+            elif self.training:
+                # Standard training flow
                 log_var, action, log_prob = self.introspection_engine(global_state)
                 self.meta_log_probs.append(log_prob)
+                self.current_modifiers = action.squeeze() # [2]
+                affine_modifiers = action.detach()
             else:
+                # Standard inference/evaluation flow (Preserves Sentience)
                 with torch.no_grad():
                     log_var, action, _ = self.introspection_engine(global_state)
-                    
-            self.current_modifiers = action.squeeze() # [2]
-            affine_modifiers = action.detach()
+                self.current_modifiers = action.squeeze() # [2]
+                affine_modifiers = action.detach()
                 
         except Exception:
             self.meta_log_probs.clear()
@@ -844,7 +851,8 @@ class AdaptiveFramework(nn.Module):
             obs = self.consciousness.observe(
                 y_true=target_data, 
                 y_pred=y_pred_for_cons, 
-                features=cons_features
+                features=cons_features,
+                internal_mode=self._internal_consolidation_mode
             )
             consciousness_metrics = obs
             
@@ -1287,7 +1295,8 @@ class AdaptiveFramework(nn.Module):
                 obs = self.consciousness.observe(
                     y_true=prediction, 
                     y_pred=prediction, 
-                    features=self._last_fused_latent if hasattr(self, '_last_fused_latent') else None
+                    features=self._last_fused_latent if hasattr(self, '_last_fused_latent') else None,
+                    internal_mode=self._internal_consolidation_mode
                 )
                 diagnostics['consciousness'] = obs
             

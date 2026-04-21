@@ -569,7 +569,7 @@ class EnhancedConsciousnessCore:
         
         self.learning_priority = {'consolidation_urgency': 0.0, 'replay_priority': 0.5}
 
-    def observe(self, *input_args, y_true, y_pred, task_id: str = "default", features: Optional[torch.Tensor] = None) -> Dict[str, Any]:
+    def observe(self, *input_args, y_true, y_pred, task_id: str = "default", features: Optional[torch.Tensor] = None, internal_mode: bool = False) -> Dict[str, Any]:
         """
         Observe an example and update consciousness state.
         Accepts multiple input tensors via *input_args.
@@ -578,112 +578,80 @@ class EnhancedConsciousnessCore:
         x = input_args[0] if input_args else torch.tensor([])
 
         # 1. Error and Surprise
-        y_pred_flat = y_pred.view(y_pred.size(0), -1)
+        y_pred_flat = y_pred.view(y_pred.size(0), -1).float()
+        y_true_f = y_true.float()
         
-        # Check for Classification (1D targets or 2D sequence targets)
+        # Determine Task Type
         is_classification = False
         if y_true.dim() == 1 and y_pred_flat.size(1) > 1:
             is_classification = True
         elif y_true.dim() == 2 and y_pred.dim() == 3:
-            # Sequence classification [B, S] vs [B, S, V]
             is_classification = True
             
-        if is_classification:
-             # Classification
-             if y_true.dim() == 2:
-                 # Flatten sequence: [B, S] -> [B*S], [B, S, V] -> [B*S, V]
-                 y_t = y_true.reshape(-1)
-                 y_p = y_pred.reshape(-1, y_pred.size(-1))
-             else:
-                 y_t = y_true
-                 y_p = y_pred_flat
-                 
-             error = F.cross_entropy(y_p, y_t, reduction='none')
-             probs = F.softmax(y_p, dim=1)
-             confidence, _ = probs.max(dim=1)
-             confidence = confidence.mean().item()
-             
-             # Uncertainty = Entropy
-             uncertainty = -(probs * torch.log(probs + 1e-6)).sum(dim=1).mean().item()
-             
-        else:
-             # Regression or Fallback
-             # Ensure float for MSE
-             y_pred_f = y_pred_flat.float()
-             
-             # FIX: Handle shape mismatch for regression calculation
-             if y_true.numel() != y_pred_f.numel():
-                 # Handle mismatch (e.g. [B] vs [B, 1] or [B] vs [B, C])
-                 if y_true.size(0) == y_pred_f.size(0):
-                     # Batch size matches, likely [B] vs [B, 1]
-                     y_true_f = y_true.view(y_pred_f.size(0), -1).float()
-                     # If still mismatch (e.g. [B, 1] vs [B, C]), take mean or slice
-                     if y_true_f.numel() != y_pred_f.numel():
-                         # Just use flat view and truncate to be safe
-                         y_true_f = y_true.float().view(-1)
-                         y_pred_f = y_pred_f.view(-1)
-                         min_len = min(y_true_f.size(0), y_pred_f.size(0))
-                         y_true_f = y_true_f[:min_len]
-                         y_pred_f = y_pred_f[:min_len]
-                 else:
-                     # Total mismatch
-                     y_true_f = y_true.float().view(-1)
-                     y_pred_f = y_pred_f.view(-1)
-                     min_len = min(y_true_f.size(0), y_pred_f.size(0))
-                     y_true_f = y_true_f[:min_len]
-                     y_pred_f = y_pred_f[:min_len]
-             else:
-                 y_true_f = y_true.view_as(y_pred_flat).float()
-                 
-             error = F.mse_loss(y_pred_f, y_true_f, reduction='none')
-             if error.dim() > 1: error = error.mean(dim=1)
-             
-             confidence = 1.0 / (1.0 + error.mean().item())
-             uncertainty = features.var(dim=0).mean().item() if features is not None else 0.5
+        try:
+            if is_classification:
+                if y_true.dim() == 2:
+                    y_t = y_true.reshape(-1).long()
+                    y_p = y_pred.reshape(-1, y_pred.size(-1))
+                else:
+                    y_t = y_true.long()
+                    y_p = y_pred_flat
+                error = F.cross_entropy(y_p, y_t, reduction='none')
+                probs = F.softmax(y_p, dim=1)
+                confidence = probs.gather(1, y_t.unsqueeze(1)).mean().item()
+                uncertainty = -(probs * torch.log(probs + 1e-6)).sum(dim=1).mean().item()
+            else:
+                # Regression
+                y_t = y_true_f.view_as(y_pred_flat)
+                y_p = y_pred_flat
+                error = torch.abs(y_p - y_t).mean(dim=1)
+                confidence = 1.0 / (1.0 + error.mean().item())
+                uncertainty = y_pred_flat.var(dim=0).mean().item() if y_pred_flat.size(0) > 1 else 0.5
+        except Exception:
+            error = torch.tensor([0.0], device=y_pred.device)
+            confidence = 0.5
+            uncertainty = 0.5
+            y_t = y_true
+            y_p = y_pred_flat
 
-        surprise = self._compute_surprise(error)
-        self._update_error_stats(error)
-        
-        # 2. Uncertainty and Novelty (from features)
+        current_loss = error.mean().item()
+        surprise = self.error_mean - current_loss if hasattr(self, 'error_mean') else 0.0
+        self.error_mean = 0.9 * getattr(self, 'error_mean', current_loss) + 0.1 * current_loss
+
+        # 2. Global Workspace Integration (Surgical Bypass)
         novelty = 0.0
         if features is not None:
-            # Simplified novelty: distance from mean feature vector
             if not hasattr(self, 'mean_feature_vector'):
                 self.mean_feature_vector = torch.zeros_like(features.mean(dim=0))
             
             novelty = torch.norm(features.mean(dim=0) - self.mean_feature_vector).item()
-            # Update mean feature vector
             self.mean_feature_vector = 0.99 * self.mean_feature_vector + 0.01 * features.mean(dim=0)
 
-            # [V8.3] Hardened: Skip recursive thought during inference/consolidation to save VRAM
-            if torch.is_grad_enabled():
+            # [V8.3] Surgical Hardening: Skip cognitive loops only in internal hibernation mode
+            if not internal_mode:
                 try:
-                    # Determine Thinking Steps based on Surprise/Uncertainty
                     thinking_steps = 3 if uncertainty > 0.8 or self.error_mean > 1.0 else (2 if uncertainty > 0.5 else 1)
                     self.confusion_level = 1.0 if uncertainty > 0.8 else (0.5 if uncertainty > 0.5 else 0.0)
 
-                    # Ensure features match workspace dim.
                     if features.size(-1) == self.feature_dim:
-                        broadcast_state, trace = self.global_workspace(features, thinking_steps=thinking_steps)
+                        _, trace = self.global_workspace(features, thinking_steps=thinking_steps)
                         self.current_thought_trace = trace
                         self.thought_stream.append(trace)
                 except Exception:
-                    pass # Dimension mismatch or other error, skip thought
+                    pass
             else:
                 self.current_thought_trace = []
                 self.confusion_level = 0.0
 
-
         # 3. Meta-Cognition Reflection
         meta_stats = self.metacognition.reflect_on_learning(
-            current_accuracy=confidence, # Proxy
-            current_loss=error.mean().item(),
-            learning_rate=0.001, # Placeholder
+            current_accuracy=confidence,
+            current_loss=current_loss,
+            learning_rate=0.001,
             task_difficulty=uncertainty
         )
         
         # 4. Emotional State
-        current_loss = error.mean().item()
         self.current_emotional_state, self.current_emotion_scores = self.emotional_system.compute_emotional_state(
             confidence=confidence,
             uncertainty=uncertainty,
@@ -691,29 +659,27 @@ class EnhancedConsciousnessCore:
             current_loss=current_loss
         )
         
-        # 5. Store Episode (Only during training to prevent memory accumulation)
-        if torch.is_grad_enabled():
+        # 5. Store Episode
+        if not internal_mode:
             self.episodic_memory.store_episode(
                 x=x,
                 error=current_loss,
                 surprise=surprise,
                 learning_gain=self.emotional_system.consecutive_improvements,
                 emotional_state=self.current_emotional_state.value,
-                task_difficulty=uncertainty, # Simple heuristic
+                task_difficulty=uncertainty,
                 y=y_true,
                 features=features
             )
 
         # 6. Return Metrics
-        # 6. Return Metrics
         metrics = {
             'loss': current_loss,
-            'surprise': surprise,
-            'uncertainty': uncertainty,
             'confidence': confidence,
+            'uncertainty': uncertainty,
+            'surprise': surprise,
             'novelty': novelty,
-            'emotion': self.current_emotional_state.value,
-            'emotion_scores': self.current_emotion_scores,
+            'emotion': self.current_emotional_state.name,
             'confusion': self.confusion_level,
             'importance': 1.0 + surprise + (1-confidence),
             'learning_rate_multiplier': self.emotional_system.get_learning_multiplier(self.current_emotional_state)
