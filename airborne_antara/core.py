@@ -64,7 +64,6 @@ class AdaptiveFrameworkConfig:
     feedback_buffer_size: int = 10000
     evaluation_frequency: int = 10
     # How often to run dreaming/replay (in steps).
-    # How often to run dreaming/replay (in steps).
     dream_interval: int = 2 # More Frequent (was 10)
     dream_batch_size: int = 32 # Larger (was hardcoded 16)
     
@@ -116,6 +115,7 @@ class AdaptiveFrameworkConfig:
     use_graph_memory: bool = False # [V9.0] Graph-Based Episodic Memory
     graph_memory_threshold: float = 0.85
     use_ogd: bool = False # [V9.1] Orthogonal Gradient Descent projection
+    ogd_max_basis_size: int = 256 # [V9.2] Limit OGD subspace size
 
     # [V8.0] Optimization
     use_lookahead: bool = True
@@ -411,6 +411,7 @@ class AdaptiveFramework(nn.Module):
             consolidation_criterion=getattr(config, 'consolidation_criterion', 'hybrid'),
             use_graph_memory=getattr(config, 'use_graph_memory', False),
             use_ogd=getattr(config, 'use_ogd', False),
+            ogd_max_basis_size=getattr(config, 'ogd_max_basis_size', 256),
             graph_threshold=getattr(config, 'graph_memory_threshold', 0.85),
             feature_dim=config.model_dim
         )
@@ -676,8 +677,14 @@ class AdaptiveFramework(nn.Module):
             global_state = torch.nan_to_num(global_state, nan=0.0)
             
             # Introspection Step
-            log_var, action, log_prob = self.introspection_engine(global_state)
-            self.meta_log_probs.append(log_prob)
+            # [V8.3] Hardened: Only accumulate gradients during training to prevent memory leaks
+            if self.training:
+                log_var, action, log_prob = self.introspection_engine(global_state)
+                self.meta_log_probs.append(log_prob)
+            else:
+                with torch.no_grad():
+                    log_var, action, _ = self.introspection_engine(global_state)
+                    
             self.current_modifiers = action.squeeze() # [2]
             affine_modifiers = action.detach()
                 
@@ -702,6 +709,17 @@ class AdaptiveFramework(nn.Module):
                 self._current_z_prediction = self.world_model(fused_latent, action_context)
             
         return output, log_var, affine_modifiers
+
+    def clear_cognitive_buffers(self):
+        """[V8.3] Explicitly clear all meta-learning and consciousness buffers."""
+        self.meta_log_probs.clear()
+        self.current_modifiers = None
+        if self.consciousness:
+            self.consciousness.current_thought_trace.clear()
+            # We don't clear the thought_stream as it's a deque for long-term stats,
+            # but we could clear it if memory pressure is critical.
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def get_emotional_parameters(self, emotion: str) -> Tuple[float, bool, float]:
         """Map emotional state to learning parameters."""
@@ -1071,7 +1089,7 @@ class AdaptiveFramework(nn.Module):
             else:
                 outputs = self.model(batch_args)
                 
-            if hasattr(outputs, 'logits'): logits = outputs.logits
+            if hasattr(outputs, 'logits'): logits = outputs[0] if getattr(outputs, 'logits', None) is None else outputs.logits
             elif isinstance(outputs, tuple): logits = outputs[0]
             else: logits = outputs
 
@@ -1114,8 +1132,6 @@ class AdaptiveFramework(nn.Module):
             else:
                 loss = F.mse_loss(logits.float(), batch_targets.float())
             
-            # print(f"DEBUG: Dream Loss: {loss.item()}")
-
             # [V9.0] Auxiliary Loss (Load Balancing, etc.)
             if hasattr(self.model, 'get_aux_loss'):
                 aux = self.model.get_aux_loss()
@@ -1134,13 +1150,6 @@ class AdaptiveFramework(nn.Module):
 
             total_loss = loss + reg_loss
             total_loss.backward()
-            
-            # Debug Gradients
-            # total_norm = 0
-            # for p in self.model.parameters():
-            #    if p.grad is not None:
-            #        total_norm += p.grad.data.norm(2).item()
-            # print(f"DEBUG: Grad Norm: {total_norm}")
             
             self.optimizer.step()
 
@@ -1291,7 +1300,6 @@ class AdaptiveFramework(nn.Module):
                     diagnostics['expert_usage'] = np.asarray(expert_usage)
 
             # 5. [V9.2] Live Memory Injection (The "Never Forget" Mechanism)
-            # 5. [V9.2] Live Memory Injection (The "Never Forget" Mechanism)
             if remember and self.memory:
                 # Create snapshot
                 snapshot = type('Snapshot', (), {})()
@@ -1344,6 +1352,7 @@ class AdaptiveFramework(nn.Module):
             return prediction, diagnostics
         else:
             return prediction
+
     def cognitive_inference(self, *model_inputs, max_steps: int = 3, threshold: float = 0.5, remember: bool = False):
         """
         [V9.3] Metacognitive Inference ("System 2" Thinking).
@@ -1391,7 +1400,6 @@ class AdaptiveFramework(nn.Module):
         elif 'expert_usage' in diagnostics:
             reflection_vector = diagnostics['expert_usage'] # Fallback
             
-        # B. Active Recall (RAG)
         # B. Active Recall (RAG)
         retrieved_context = []
         if self.memory and hasattr(self.memory, 'graph_memory') and self.memory.graph_memory:

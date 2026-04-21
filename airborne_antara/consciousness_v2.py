@@ -655,29 +655,23 @@ class EnhancedConsciousnessCore:
             # Update mean feature vector
             self.mean_feature_vector = 0.99 * self.mean_feature_vector + 0.01 * features.mean(dim=0)
 
-            # [V8.0] Process Thought (Recursive Global Workspace)
-            # We treat the features as inputs to the workspace
-            try:
-                # Determine Thinking Steps based on Surprise/Uncertainty
-                # High uncertainty -> More thinking (System 2)
-                base_steps = 1
-                if uncertainty > 0.8 or self.error_mean > 1.0:
-                    thinking_steps = 3 # Deep thought
-                    self.confusion_level = 1.0
-                elif uncertainty > 0.5:
-                    thinking_steps = 2
-                    self.confusion_level = 0.5
-                else:
-                    thinking_steps = 1 # Reflex
-                    self.confusion_level = 0.0
+            # [V8.3] Hardened: Skip recursive thought during inference/consolidation to save VRAM
+            if torch.is_grad_enabled():
+                try:
+                    # Determine Thinking Steps based on Surprise/Uncertainty
+                    thinking_steps = 3 if uncertainty > 0.8 or self.error_mean > 1.0 else (2 if uncertainty > 0.5 else 1)
+                    self.confusion_level = 1.0 if uncertainty > 0.8 else (0.5 if uncertainty > 0.5 else 0.0)
 
-                # Ensure features match workspace dim.
-                if features.size(-1) == self.feature_dim:
-                    broadcast_state, trace = self.global_workspace(features, thinking_steps=thinking_steps)
-                    self.current_thought_trace = trace
-                    self.thought_stream.append(trace)
-            except Exception:
-                pass # Dimension mismatch or other error, skip thought
+                    # Ensure features match workspace dim.
+                    if features.size(-1) == self.feature_dim:
+                        broadcast_state, trace = self.global_workspace(features, thinking_steps=thinking_steps)
+                        self.current_thought_trace = trace
+                        self.thought_stream.append(trace)
+                except Exception:
+                    pass # Dimension mismatch or other error, skip thought
+            else:
+                self.current_thought_trace = []
+                self.confusion_level = 0.0
 
 
         # 3. Meta-Cognition Reflection
@@ -697,17 +691,18 @@ class EnhancedConsciousnessCore:
             current_loss=current_loss
         )
         
-        # 5. Store Episode
-        self.episodic_memory.store_episode(
-            x=x,
-            error=current_loss,
-            surprise=surprise,
-            learning_gain=self.emotional_system.consecutive_improvements,
-            emotional_state=self.current_emotional_state.value,
-            task_difficulty=uncertainty, # Simple heuristic
-            y=y_true,
-            features=features
-        )
+        # 5. Store Episode (Only during training to prevent memory accumulation)
+        if torch.is_grad_enabled():
+            self.episodic_memory.store_episode(
+                x=x,
+                error=current_loss,
+                surprise=surprise,
+                learning_gain=self.emotional_system.consecutive_improvements,
+                emotional_state=self.current_emotional_state.value,
+                task_difficulty=uncertainty, # Simple heuristic
+                y=y_true,
+                features=features
+            )
 
         # 6. Return Metrics
         # 6. Return Metrics

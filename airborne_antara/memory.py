@@ -33,9 +33,10 @@ class OrthogonalProjector:
     Implements Orthogonal Gradient Descent (OGD) for Immortal Memory.
     Projects gradients onto the null space of previous tasks' feature subspaces.
     """
-    def __init__(self, device, threshold=0.95):
+    def __init__(self, device, threshold=0.95, max_basis_size=256):
         self.device = device
         self.threshold = threshold # Variance retention threshold for PCA
+        self.max_basis_size = max_basis_size
         self.subspaces = {} # Layer name -> Basis Matrix (M) [D, k]
         
     def update_subspace(self, layer_name: str, activations: torch.Tensor):
@@ -50,37 +51,42 @@ class OrthogonalProjector:
         mean = activations.mean(dim=0, keepdim=True)
         X = activations - mean
         
-        # SVD: X = U S V^T
-        # We want V (principal components)
+        # [V8.2] MEMORY OPTIMIZATION: Move to CPU for SVD/QR to save VRAM
+        # Large matrix operations on GPU trigger OOM on 6GB machines.
         try:
-            _, S, Vh = torch.linalg.svd(X, full_matrices=False)
+            X_cpu = X.cpu()
+            _, S, Vh = torch.linalg.svd(X_cpu, full_matrices=False)
             V = Vh.T # [D, N] or [D, D]
             
             # 2. Select Top Components
-            # Cumulative energy
             energy = torch.cumsum(S ** 2, dim=0)
             total_energy = energy[-1]
             if total_energy == 0: return
             
-            # Find k where energy > threshold
             mask = (energy / total_energy) >= self.threshold
-            if not mask.any(): k = len(S)
-            else: k = mask.nonzero()[0].item() + 1
+            k = mask.nonzero()[0].item() + 1 if mask.any() else len(S)
             
             new_basis = V[:, :k] # [D, k]
             
             # 3. Merge with existing subspace (Gram-Schmidt / QR)
             if layer_name in self.subspaces:
-                old_basis = self.subspaces[layer_name]
-                # Concatenate
+                old_basis = self.subspaces[layer_name].cpu()
                 combined = torch.cat([old_basis, new_basis], dim=1)
-                # Orthonormalize using QR
-                Q, _ = torch.linalg.qr(combined)
-                # Limit size? If rank is full, we freeze the layer.
-                # For now, keep all.
-                self.subspaces[layer_name] = Q
+                
+                # Capping basis size to prevent explosive growth
+                if combined.size(1) > self.max_basis_size:
+                    # Keep most important components from combined QR
+                    Q, _ = torch.linalg.qr(combined)
+                    Q = Q[:, :self.max_basis_size]
+                else:
+                    Q, _ = torch.linalg.qr(combined)
+                
+                self.subspaces[layer_name] = Q.to(self.device)
             else:
-                self.subspaces[layer_name] = new_basis
+                self.subspaces[layer_name] = new_basis.to(self.device)
+                
+            if self.device.type == 'cuda':
+                torch.cuda.empty_cache()
                 
         except Exception as e:
             pass # SVD failed (NaNs etc)
@@ -342,6 +348,7 @@ class UnifiedMemoryHandler:
                  ewc_lambda: float = 0.4,
                  consolidation_criterion: str = 'hybrid',
                  use_ogd: bool = False,
+                 ogd_max_basis_size: int = 256,
                  use_holographic: bool = True,
                  use_graph_memory: bool = False,
                  graph_threshold: float = 0.85,
@@ -360,7 +367,10 @@ class UnifiedMemoryHandler:
         self.logger = logging.getLogger('UnifiedMemoryHandler')
         
         # OGD Projector
-        self.projector = OrthogonalProjector(next(model.parameters()).device) if use_ogd else None
+        self.projector = OrthogonalProjector(
+            next(model.parameters()).device, 
+            max_basis_size=ogd_max_basis_size
+        ) if use_ogd else None
         
         # Holographic Memory (V8.0)
         self.holographic_memory = HolographicAssociativeMemory(feature_dim=feature_dim) if use_holographic else None
@@ -546,53 +556,66 @@ class UnifiedMemoryHandler:
                 
         self.fisher_dict = fisher
 
-    def _consolidate_ogd_subspaces(self, feedback_buffer, sample_limit: int = 200):
+    def _consolidate_ogd_subspaces(self, feedback_buffer, sample_limit: int = 100, batch_size: int = 20):
         """
-        Compute subspaces for OGD from replay buffer.
+        Compute subspaces for OGD from replay buffer with batching for VRAM safety.
         """
         if not feedback_buffer.buffer: return
         
         samples = list(feedback_buffer.buffer)[-sample_limit:]
+        device = next(self.model.parameters()).device
         
-        # We need to hook activations
+        # 1. Setup Hooks
         activations = {}
         def get_activation(name):
             def hook(model, input, output):
                 if isinstance(input[0], torch.Tensor):
                     if name not in activations: activations[name] = []
-                    # Flatten inputs: [B, In]
-                    inp = input[0].detach()
+                    # Move to CPU immediately to keep GPU clear
+                    inp = input[0].detach().cpu()
                     if inp.dim() > 2: inp = inp.view(inp.size(0), -1)
                     activations[name].append(inp)
             return hook
             
         hooks = []
         for name, mod in self.model.named_modules():
-            if isinstance(mod, (nn.Linear)): # Only Linear for now
+            if isinstance(mod, nn.Linear):
                 hooks.append(mod.register_forward_hook(get_activation(name)))
                 
-        # Run forward pass
+        # 2. Run Forward Pass in controlled batches
         self.model.eval()
         try:
-            # Batching logic
-            num_args = len(samples[0].input_args)
-            batch_args = []
-            device = next(self.model.parameters()).device
-            for i_arg in range(num_args):
-                arg_tensors = [s.input_args[i_arg].to(device) for s in samples]
-                batch_args.append(torch.cat(arg_tensors, dim=0))
+            for i in range(0, len(samples), batch_size):
+                batch = samples[i:i + batch_size]
+                num_args = len(batch[0].input_args)
+                
+                batch_args = []
+                for i_arg in range(num_args):
+                    arg_tensors = [s.input_args[i_arg].to(device) for s in batch]
+                    batch_args.append(torch.cat(arg_tensors, dim=0))
+                
+                with torch.no_grad():
+                    self.model(*batch_args)
+                
+                # [V8.3] Hardened: Deep maintenance during consolidation batch
+                if hasattr(self.model, 'clear_cognitive_buffers'):
+                    self.model.clear_cognitive_buffers()
+                elif device.type == 'cuda':
+                    torch.cuda.empty_cache()
             
-            self.model(*batch_args)
-            
-            # Update Projector
+            # 3. Update Projector Subspaces
             for name, acts in activations.items():
-                full_act = torch.cat(acts, dim=0) # [N, D]
+                full_act = torch.cat(acts, dim=0) # [N, D] on CPU
                 self.projector.update_subspace(name, full_act)
+                del full_act
                 
         except Exception as e:
             self.logger.warning(f"OGD Consolidation failed: {e}")
         finally:
             for h in hooks: h.remove()
+            activations.clear()
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
 
     def compute_penalty(self, adaptive_mode: str = 'NORMAL', step_in_mode: int = 0) -> torch.Tensor:
         """Compute total regularization loss."""
