@@ -1,4 +1,4 @@
-﻿# AIRBORNE-ANTARA Presets System
+# ANTARA SENTIENT Presets System (V8.0)
 
 ## One-Liner Magic ✨
 
@@ -32,13 +32,11 @@ config = PRESETS.production()
 ```
 
 **Key features:**
-- Large model (512 dims) for expressiveness
-- Hybrid memory (EWC + SI) for robust learning
-- Prioritized replay (focus on hard examples)
-- Full consciousness layer (5D awareness)
-- Conservative panic threshold (0.15)
-- GPU optimized with AMP
-- Best accuracy with reasonable inference speed
+- **Pillar 1 (Consciousness)**: Fully recursive System 2 deliberation.
+- **Pillar 2 (Memory)**: Unified SI + EWC + OGD manifold.
+- **Pillar 3 (Perception)**: Multi-modal fusion with DPI.
+- **Pillar 4 (Health)**: Autonomic AMP and Saliency scaling.
+- GPU optimized with research-tuned Sentient defaults.
 
 **Best for:**
 - Medical/healthcare applications
@@ -48,14 +46,11 @@ config = PRESETS.production()
 
 **Hyperparameters:**
 ```
-Learning rate:          5e-4  (careful, stable)
-Model dim:              512   (large, expressive)
-Buffer size:            20000 (long-term memory)
-Memory type:            hybrid
-Consolidation:          hybrid (balanced time + surprise)
-Consciousness:          enabled
-Attention:              enabled
-Intrinsic motivation:   enabled
+Learning rate:          5e-4  (Sentient-stable)
+Memory Architecture:    Unified (SI + EWC + OGD)
+Consciousness Core:     Enabled (Recursive)
+Perception Gateway:     Enabled (DPI)
+Autonomic Health:       Enabled (AMP + Jitter)
 ```
 
 ---

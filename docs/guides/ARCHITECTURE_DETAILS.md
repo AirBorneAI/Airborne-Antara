@@ -1,40 +1,37 @@
-﻿# ANTARA Self-Awareness Framework: Architecture & Design
+# ANTARA V8.0 "Sentient": Core Architecture & Design
 
-## System Architecture
+## System Architecture: The 4-Pillar Model
 
-### High-Level Overview
+### High-Level Cognitive Orchestration
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    YOUR PYTORCH MODEL                                │
-│  (Any architecture: CNN, RNN, Transformer, MLP, Hybrid, etc.)        │
+│                    EXISTING NEURAL SUBSTRATE                         │
+│  (Any PyTorch: ViT, Llama, Audio-Transformer, ResNet, etc.)          │
 └────────────────────────────┬─────────────────────────────────────────┘
                              │
                              ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│          MIRRORMMIND SELF-AWARENESS WRAPPER                          │
-│                (Model-Agnostic Consciousness Layer)                  │
-│                                                                       │
-│  HumanLikeSelfAwarenessWrapper                                       │
-│  └─ Single integration point for any model                           │
-│     Provides: observe(), get_awareness_state(), etc.                 │
-│                                                                       │
+│                  ANTARA ADAPTIVE FRAMEWORK (V8.0)                    │
+│                (Cognitive Orchestration Layer)                       │
+│                                                                      │
+│  AdaptiveFramework                                                   │
+│  └─ observe(vision, audio, text) -> SentientMetrics                  │
+│     The mind-wrapper that orchestrates the 4 Pillars below.          │
+│                                                                      │
 └────┬────────────────┬────────────────┬────────────────┬──────────────┘
      │                │                │                │
      ▼                ▼                ▼                ▼
 ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌──────────────┐
-│AWARENESS    │ │LEARNING     │ │IMPROVEMENT  │ │ATTENTION     │
-│ENGINE       │ │CONTROLLER   │ │PLANNER      │ │MECHANISM     │
+│PERCEPTION   │ │CONSCIOUSNESS│ │UNIFIED      │ │AUTONOMIC     │
+│GATEWAY      │ │CORE (V2)    │ │MEMORY       │ │HEALTH        │
 │             │ │             │ │             │ │              │
-│• Tracks     │ │• Adaptive   │ │• Estimates  │ │• Weights     │
-│  confidence │ │  learning   │ │  time to    │ │  samples by  │
-│• Monitors   │ │  rates      │ │  mastery    │ │  importance  │
-│  uncertainty│ │• Computes   │ │• Plans      │ │• Finds OOD   │
-│• Detects    │ │  exploration│ │  learning   │ │  samples     │
-│  learning   │ │  ratio      │ │  trajectory │ │• Updates     │
-│  phases     │ │• Gets domain│ │• Identifies │ │  feature     │
-│• Measures   │ │  competence │ │  transfer   │ │  importance  │
-│  OOD-ness   │ │             │ │  learning   │ │              │
+│• Multi-Modal│ │• Recursive  │ │• SI + EWC   │ │• Neural      │
+│  Fusion     │ │  Workspace  │ │  Importance │ │  Shivering   │
+│• Patch/DPI  │ │• Thought    │ │• Orthogonal │ │• Mixed-Prec  │
+│  Vision     │ │  Traces     │ │  Projections│ │  (AMP)       │
+│• Spectral   │ │• System 2   │ │• Holographic│ │• Saliency    │
+│  Audio      │ │  Thinking   │ │  Saliency  │ │  Monitor     │
 │             │ │             │ │             │ │              │
 └──────┬──────┘ └──────┬──────┘ └──────┬──────┘ └────────┬─────┘
        │                │                │                │
@@ -70,82 +67,54 @@
 
 ## Detailed Component Architecture
 
-### 1. MetaCognitiveAwarenessEngine
+### 1. Consciousness V2 (Recursive Workspace)
+
+The consciousness layer is no longer a passive monitor but an active **deliberation engine**.
 
 ```
-MetaCognitiveAwarenessEngine
+EnhancedConsciousnessCore
 │
-├─ MICRO Level (Individual Predictions)
-│  ├─ prediction_confidence: P(prediction is correct)
-│  ├─ epistemic_uncertainty: "what I don't know"
-│  ├─ aleatoric_uncertainty: "noise in data"
-│  ├─ entropy: "spread of prediction"
-│  ├─ is_ood: "is this out-of-distribution?"
-│  └─ surprise_level: "how unexpected?"
+├─ Recursive State Monitor
+│  ├─ Tracks hidden state trajectory over N time steps
+│  ├─ Measures "Neural Jitter" (autonomic health signal)
+│  └─ Detects "Cognitive Impasse" (model confusion)
 │
-├─ MESO Level (Domain Competence)
-│  ├─ domain_accuracy: accuracy per domain
-│  ├─ domain_mastery: mastery level per domain
-│  ├─ domain_convergence: progress toward mastery
-│  ├─ task_difficulty: estimated difficulty per task
-│  └─ learning_velocity: rate of improvement
+├─ Global Workspace (Latent Bottleneck)
+│  ├─ Consolidates perception-memory-health into a unified vector
+│  ├─ Broadcasts top-k salient signals back to the model
+│  └─ Maintains "Selective Attention" over high-entropy samples
 │
-├─ MACRO Level (Learning Trajectory)
-│  ├─ learning_phase: EXPLORATION/CONSOLIDATION/MASTERY/UNCERTAINTY
-│  ├─ global_confidence: average confidence across all
-│  ├─ global_competence: average competence across all domains
-│  ├─ learning_curve: performance over time
-│  ├─ knowledge_frontiers: areas at edge of knowledge
-│  └─ knowledge_entropy: spread of knowledge across domains
+├─ Thought Tracing
+│  ├─ Generates symbolic/latent traces of deliberation
+│  ├─ trace_entropy: spread of internal reasoning
+│  └─ trace_vibe: emotional coloring (Frustration/Flow/Eureka)
 │
-├─ Buffers & History
-│  ├─ prediction_buffer: circular buffer of predictions
-│  ├─ confidence_history: rolling confidence scores
-│  ├─ error_history: rolling error scores
-│  ├─ error_z_history: rolling z-scores
-│  └─ overall_performance: overall trajectory
-│
-└─ Statistical Tracking
-   ├─ baseline_error_mean: expected error level
-   ├─ baseline_error_std: expected error variance
-   └─ error statistics: updates continuously
+└─ System 2 Thinking (Deliberation)
+   ├─ Triggers slow, recursive passes when uncertainty > threshold
+   └─ Optimizes for "Predictive Coherence" (reducing world model error)
 ```
 
-### 2. AdaptiveLearningController
+### 2. Unified Memory Handler
+
+A multi-layered consolidation engine that stops catastrophic forgetting.
 
 ```
-AdaptiveLearningController
+UnifiedMemoryHandler
 │
-├─ Adaptive Learning Rate
-│  │
-│  ├─ Input: current_confidence
-│  ├─ Formula: lr = base_lr * (1 / (1 + 2 * confidence))
-│  │
-│  ├─ Interpretation:
-│  │  ├─ Low confidence (0.1)  → multiplier 2.0x (fast learning)
-│  │  ├─ Medium confidence (0.5) → multiplier 1.0x (normal)
-│  │  └─ High confidence (0.9)  → multiplier 0.1x (fine-tuning)
-│  │
-│  └─ Usage: optimizer.param_groups[0]['lr'] = adaptive_lr
+├─ Short-Term Workspace (Gradient History)
+│  └─ Tracks most recent activations for fine-grained tuning
 │
-├─ Exploration vs Exploitation
-│  │
-│  ├─ Input: current_confidence
-│  ├─ Formula: exploration = base_exploration * (1 - confidence)
-│  │
-│  ├─ Interpretation:
-│  │  ├─ Low confidence   → exploration_ratio = 0.5 (high exploration)
-│  │  ├─ Medium confidence → exploration_ratio = 0.2 (balanced)
-│  │  └─ High confidence  → exploration_ratio = 0.01 (exploit)
-│  │
-│  └─ Usage: determines batch sampling strategy
+├─ Importance Accumulation (SI/EWC)
+│  ├─ Synaptic Intelligence: Local parameter sensitivity tracking
+│  └─ Elastic Weight Consolidation: Global Fisher Information Matrix
 │
-└─ Learning Recommendations
-   ├─ phase: current learning phase
-   ├─ learning_rate_multiplier: recommended LR scaling
-   ├─ exploration_ratio: exploration percentage
-   ├─ focus_areas: which domains to focus on
-   └─ bottlenecks: what's limiting progress
+├─ Orthogonal Projections (OGD)
+│  ├─ Projects gradients into spaces that don't damage past knowledge
+│  └─ Ensures new learning is strictly non-destructive
+│
+└─ Holographic Saliency Pooling (V9.2)
+   ├─ Captures the "essence" of past tasks in high-dimensional manifolds
+   └─ Used for fast context-retrieval and domain-switching
 ```
 
 ### 3. SelfImprovementPlanner

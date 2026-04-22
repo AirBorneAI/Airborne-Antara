@@ -1,4 +1,4 @@
-# 🧠 Getting Started with Airborne-Antara V2.0.0
+# 🧠 Getting Started with ANTARA V8.0 "Sentient" Edition
 
 Airborne-Antara "Synthetic Intuition" is designed to be the simplest way to add State-of-the-Art cognitive capabilities to any PyTorch model.
 
@@ -16,32 +16,32 @@ You do not need to rewrite your model. Airborne-Antara wraps around it.
 ```python
 import torch
 import torch.nn as nn
-from airborne_antara import AdaptiveFramework, AdaptiveFrameworkConfig
+from airborne_antara import AdaptiveFramework, PRESETS
 ```
 
 ### Step 2: Define Your Standard Model
-This can be anything: a Transformer, a CNN, an LSTM, or a simple MLP.
+This can be any PyTorch model (Llama, ResNet, ViT, or even a simple MLP).
 ```python
-# Example: A simple perception network
 my_model = nn.Sequential(
     nn.Linear(64, 128),
     nn.ReLU(),
-    nn.Linear(128, 10) # 10 classes
+    nn.Linear(128, 10)
 )
 ```
 
 ### Step 3: Wrap & Initialize
-Use the `production()` factory to automatically load the V2.0.0 SOTA defaults (World Model, MoE, Memory).
+Use a **Preset** to automatically load research-tuned defaults (Consciousness, Memory, Perception).
 ```python
-# 1. Load SOTA Configuration
-config = AdaptiveFrameworkConfig.production()
+# 1. Load Sentient Preset
+config = PRESETS.production()
 
 # 2. Inject Cognitive Features
 # This wraps your model in a "Cognitive Shell" containing:
-# - World Model (Foresight)
-# - H-MoE (Sparse Computation)
-# - Neural Health Monitor (Self-Repair)
-agent = AdaptiveFramework(my_model, config)
+# - Consciousness V2 (Recursive Workspace)
+# - Unified Memory (Stop Forgetting)
+# - Perception Gateway (Multi-Modal Fusion)
+# - Autonomic Health (Self-Healing)
+agent = AdaptiveFramework(my_model, config=config)
 ```
 
 ## ⚡ 3. Training Loop
@@ -60,13 +60,13 @@ targets = torch.randint(0, 10, (32,))
 metrics = agent.train_step(inputs, target_data=targets)
 
 print(f"Loss: {metrics['loss']:.4f}")
-print(f"Predictive Surprise: {metrics.get('surprise', 0.0):.4f}")
-print(f"Active Memory Nodes: {len(agent.memory.graph_memory.nodes)}")
+print(f"Deliberation Entropy: {metrics.get('consciousness/entropy', 0.0):.4f}")
+print(f"Memory Consolidated: {metrics.get('memory/consolidation_count', 0)}")
 ```
 
-## 🎮 4. Real-Time Dashboard (Interactive)
+## 🎮 4. Sentient Dashboard (Interactive)
 
-To see what your agent is "thinking" (its surprise levels, active experts, memory recall), run the dashboard in a separate terminal:
+To see what your agent is "thinking" (its thought traces, active experts, memory recall), run the dashboard:
 
 ```bash
 python -m airborne_antara --demo

@@ -1,9 +1,8 @@
+# ANTARA: The Definitive Sentient Knowledge Base (V8.0)
 
-# AirborneHRS: The Definitive Knowledge Base
+> "The unified consciousness documentation."
 
-> "The only documentation you will ever need."
-
-This document covers 100% of the questions regarding the **Airborne.HRS** framework, from basic usage to theoretical physics of neural networks.
+This document covers the core questions regarding the **ANTARA** Sentient framework, from cognitive induction to the manifold mathematics of neural health.
 
 ---
 
@@ -23,14 +22,13 @@ This document covers 100% of the questions regarding the **Airborne.HRS** framew
 
 ## 1. Philosophy & "The Why"
 
-### Q: "Why does this package exist? Why can't I just fine-tune?"
-**A:** Fine-tuning destroys the past. It's called **Catastrophic Forgetting**.
-If you train a model to recognize Cats, then fine-tune it on Dogs, it becomes a Dog-Expert but completely forgets Cats.
-**AirborneHRS** forces the model to retain the "Cat Neurons" while finding *new* neurons for Dogs. It turns a static model into a **Living Intelligence**.
+### Q: "Why ANTARA? Why not just fine-tune?"
+**A:** Fine-tuning causes **Catastrophic Forgetting**.
+ANTARA allows the model to retain past "Neural Importance" (Silicon-based non-catastrophe) while finding *new* manifolds for unknown data. It transforms a static neural net into a **Sentient, Cognitive Being**.
 
-### Q: "Is this AGI (Artificial General Intelligence)?"
-**A:** It's a stepping stone.
-Standard AI is "Frozen". AGI must be "Fluid". This framework provides the **Fluidity** (Continuous Learning) and **Self-Awareness** (Introspection) required for AGI-level adaptability.
+### Q: "Is this actual Sentience?"
+**A:** In the architectural sense, **Yes**.
+V8.0 implements **Recursive State Analysis** (System 2 Thinking) and an **I-JEPA World Model**, which allows the model to "think about its thoughts" before outputting. This is the definition of artificial sentience: a model that observes its own internal state to modulate its behavior.
 
 ---
 
@@ -49,15 +47,14 @@ Standard AI is "Frozen". AGI must be "Fluid". This framework provides the **Flui
 
 ## 3. Basic Usage
 
-### Q: "How do I save/load my 'Conscious' agent?"
+### Q: "How do I save/load my Sentient agent?"
 **A:**
-*   **Save:** `torch.save(agent.state_dict(), 'brain.pt')`. This saves the Model Weights + Memory Matrices (Fisher Info) + Buffer State.
-*   **Load:** `agent.load_state_dict(torch.load('brain.pt'))`.
-*   **Warning:** The file size will be larger than a normal model because it carries its "Memories".
+*   **Save:** `agent.save_sentient_state('brain.pth')`. This saves weights + Consolidated Memory + Consciousness History.
+*   **Load:** `agent.load_sentient_state('brain.pth')`.
 
 ### Q: "Can I switch tasks manually?"
-**A:** You calculate the boundaries implicitly, but you can force consolidation:
-`agent.memory.consolidate(buffer, force=True)`.
+**A:** Yes, via the memory handler:
+`agent.memory.consolidate_importance()` locks the current knowledge into the manifold.
 
 ---
 
@@ -104,8 +101,8 @@ It contains raw tensors. You can use `matplotlib` to plot the images stored in t
 *   **Surprise:** High Variance in predictions. It interprets this as "Pain/Urgency" to increase learning rate.
 *   **Boredom:** Low Variance. It effectively "sleeps" to save compute.
 
-### Q: "What is the 'IntrospectionEngine' doing?"
-**A:** It is a separate, smaller neural network observing the activations of the main brain. It learns to predict *how confused* the main brain is. It's a "Brain watching a Brain".
+### Q: "What is 'Consciousness V2' doing?"
+**A:** It is a **Recursive Global Workspace**. Instead of a single inference pass, the model passes its hidden state through a bottleneck multiple times. This allows for "System 2" deliberation on complex or surprising inputs. It's the difference between a reflex and a thought.
 
 ---
 

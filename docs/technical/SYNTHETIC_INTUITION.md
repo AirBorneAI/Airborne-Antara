@@ -1,35 +1,35 @@
-# Synthetic Intuition: The V2.0.0 Architecture
+# Synthetic Intuition: The V8.0 "Sentient" Architecture
 
-AirborneHRS V2.0.0 represents a paradigm shift from **Reactive AI** (Output = f(Input)) to **Predictive AI** (Output = f(Input, Predicted_Future)).
+ANTARA V8.0 represents a paradigm shift from **Reactive AI** (Output = f(Input)) to **Predictive AI** (Output = f(Input, Predicted_Future)) via the **I-JEPA World Model**.
 
-This document details the five pillars of this architecture.
+This document details the core pillars of the Sentient architecture.
 
 ---
 
-## 0. THE SENSORIUM (Multi-Modal Encoders)
+## 0. THE PERCEPTION GATEWAY (Multi-Modal Encoders)
 **[Technical Deep Dive: Multi-Modal Fusion ↗](../math/MULTIMODAL_FUSION.md)**
 
-Before synthetic intuition can operate, the system must perceive. AirborneHRS V2.0.0 replaces standard input layers with a modular **Perception Gateway**.
+V8.0 utilizes a modular **Perception Gateway** to handle diverse sensorium streams simultaneously.
 
-### A. Vision (ViT-Based)
-The system processes visual streams using a Patch-Based Transformer.
+### A. Vision (ViT-Based with DPI)
+The system processes visual streams using a Patch-Based Transformer with **Dynamic Positional Interpolation (DPI)**.
 -   **Method**: Images are sliced into $16 \times 16$ patches.
+-   **DPI**: Enables attention to high-resolution images by interpolating positional embeddings in real-time.
 -   **Projection**: Patches are linearly projected into the model dimension $D$.
--   **Learned Positional Embeddings**: Spatial context is injected via learnable parameters.
 
 ### B. Audio (Spectral-Transformer)
-Audio is not treated as a naive waveform but as a temporal sequence of spectral features.
+Audio is treated as a temporal sequence of spectral features.
 -   **Method**: STFT Spectrogram $\rightarrow$ Linear Projection.
--   **Temporal Attention**: A causal Transformer encodes dependencies over time (e.g., speech phonemes or rhythm).
+-   **Temporal Attention**: A causal Transformer encodes dependencies over time.
 
 ### C. The Fusion Layer (XMA)
-All modalities are unified in a single manifold via **Cross-Modality Attention**. We append learnable "Modality Tokens" (VisionToken, AudioToken) to each stream, allowing the model to dynamically attend to "Sound" or "Sight" based on context.
+All modalities are unified in a single manifold via **Cross-Modality Attention**. Modality Tokens (VisionToken, AudioToken) allow the unified brain to attend to specific streams based on importance.
 
 ---
 
-## 1. The World Model (I-JEPA Implementation)
+## 1. The World Model (I-JEPA V9.2)
 
-The core of "Synthetic Intuition" is the ability to forecast the consequences of actions or the evolution of the environment without external labels. We implement a **Joint-Embedding Predictive Architecture (I-JEPA)** based on LeCun's vision for AGI.
+The core is the ability to forecast without external labels. We implement a **Joint-Embedding Predictive Architecture (I-JEPA)**.
 
 ### How it Works
 1.  **Context Encoder**: The model observes the current state $x_t$ and encodes it into a latent representation $s_t$.

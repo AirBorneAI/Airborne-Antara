@@ -1,22 +1,24 @@
-# AirborneHRS Implementation Guide: Multi-Modal Strategies
+# ANTARA Implementation Guide: Multi-Modal Strategies
 
-This guide provides specific strategies for applying **AirborneHRS V8.0 "Sentient"** to various data modalities. The `AdaptiveFramework` is universal, but each modality benefits from specific configurations.
+This guide provides specific strategies for applying **ANTARA V8.0 "Sentient"** to various data modalities. The `AdaptiveFramework` is universal, but each modality benefits from specific configurations.
 
 ---
 
 ## 👁️ Computer Vision (CNNs, ViTs)
 
 ### Recommended Configuration
-Vision models often benefit from **high plasticity** in early layers (feature extraction) and **strong memory** in later layers (classification).
+Vision models benefit from **Dynamic Positional Interpolation (DPI)** to handle variable resolutions and **Holographic Saliency** for feature persistence.
 
 ```python
-config = AdaptiveFrameworkConfig(
-    model_dim=512,          # Match your CNN's feature dimension
+from airborne_antara import PRESETS
+
+# Use the 'production' preset or customize for vision
+config = PRESETS.production().customize(
     use_amp=True,           # Critical for image processing speed
-    memory_type='hybrid',   # Best for retaining visual concepts
-    use_moe=True,           # [V7.1] Excellent for multi-task vision
-    num_experts=4,
-    input_dim=3*224*224     # Required if using MoE on raw pixels (rare)
+    vision_dpi=True,        # Use Dynamic Positional Interpolation [V8.0+]
+    memory_type='hybrid',   # SI + EWC balance
+    use_moe=True,           # Sparse Experts for feature variety
+    num_experts=4
 )
 ```
 
@@ -32,23 +34,22 @@ agent = AdaptiveFramework(backbone, config=config)
 ```
 
 ### Tips
--   **Data Augmentation**: Apply standard augmentations (RandomCrop, Flip) *before* passing data to the agent. The agent learns robustly from augmented views.
--   **Introspection**: Monitor `surprise` metrics. High surprise on specific classes indicates a need for more training samples of that class.
+-   **Data Augmentation**: Apply standard augmentations (RandomCrop, Flip) *before* passing data to the agent.
+-   **Saliency Monitor**: Monitor `health/saliency_score`. Low scores indicate the model is attending to background noise rather than features.
 
 ---
 
 ## 🗣️ NLP (Transformers, LLMs)
 
 ### Recommended Configuration
-NLP requires **long-term context** and **recursive reasoning** (System 2).
+NLP requires **recursive reasoning** and **high-fidelity memory consolidation**.
 
 ```python
-config = AdaptiveFrameworkConfig(
-    model_dim=768,          # Match Transformer hidden size (e.g., BERT base)
-    num_heads=12,           # Match Transformer heads
-    enable_consciousness=True, # Critical for language reasoning
-    use_lookahead=True,     # Helps escape local minima in complex loss landscapes
-    use_gradient_centralization=True
+config = PRESETS.accuracy_focus().customize(
+    enable_consciousness=True,  # Critical for System 2 reasoning
+    recursive_steps=3,          # Number of deliberation loops
+    use_ogd=True,               # Orthogonal Gradient Descent for non-destructive NLP
+    memory_warmup=100           # Wait before memory consolidation
 )
 ```
 

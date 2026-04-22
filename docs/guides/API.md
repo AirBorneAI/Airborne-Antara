@@ -1,109 +1,84 @@
-
-# API Reference (v1.1.1 "Adaptive" Edition)
+# API Reference (v8.0 "Sentient" Edition)
 
 ## Overview
 
-`airborne_antara` provides three main components for adaptive meta-learning:
+`airborne_antara` provides a unified cognitive wrapper for any PyTorch model. The V8.0 "Sentient" edition is structured around 4 interactive pillars:
 
-1. **AdaptiveFramework** : Core learner with introspection and online adaptation
-2. **MetaController** : Advanced adaptation orchestration (learning to learn)
-3. **MetaCognitionCore** : Recursive State Analysis with global workspace
-4. **ProductionAdapter** : Simplified interface for production deployment
+1. **AdaptiveFramework**: The primary entry point. A sentient wrapper for your neural substrate.
+2. **Consciousness V2**: Recursive Global Workspace for higher-order deliberation.
+3. **Unified Memory**: Multi-layered consolidation (SI/EWC/OGD) to prevent forgetting.
+4. **Perception Gateway**: High-resolution multi-modal fusion (Vision/Audio/Text).
+5. **Autonomic Health**: Real-time neural stability and mixed-precision (AMP) orchestration.
 
-## AdaptiveFramework
+---
 
-Base learner class that implements continuous learning through introspection.
+## AdaptiveFramework (The Cognitive Wrapper)
 
-### Configuration
-
-```
-from airborne_antara import AdaptiveFrameworkConfig
-
-config = AdaptiveFrameworkConfig(
-    # Model architecture
-    model_dim=256,              # Embedding dimension
-    num_layers=6,               # Number of transformer layers
-    num_heads=8,                # Attention heads
-    ff_dim=1024,                # Feedforward dimension
-    dropout=0.1,                # Dropout rate
-  
-    # Learning parameters
-    learning_rate=1e-3,         # Base learning rate
-    meta_learning_rate=1e-4,    # Meta-learning rate
-    batch_size=32,              # Training batch size
-    epochs=10,                  # Training epochs
-  
-    # Adaptation parameters
-    weight_adaptation_lr=1e-5,  # Weight adaptation learning rate
-    adaptation_threshold=0.05,  # Threshold for triggering adaptation
-  
-    # Meta-learning (optimization cycle)
-    inner_loop_steps=5,         # MAML inner loop iterations
-    outer_loop_steps=1,         # MAML outer loop iterations
-)
-```
+The main class that transforms a static model into an adaptive, cognitive agent.
 
 ### Initialization
 
-```
-from airborne_antara import AdaptiveFramework
+```python
+from airborne_antara import AdaptiveFramework, PRESETS
+import torch
 
-framework = AdaptiveFramework(config, device='cuda')
+# 1. Define your base model (any PyTorch model)
+my_model = YourPyTorchModel()
+
+# 2. Choose a Sentient Preset
+config = PRESETS.production()
+
+# 3. Wrap it
+agent = AdaptiveFramework(my_model, config=config, device="cuda")
 ```
+
+**Parameters:**
+
+* `model` (nn.Module): The base neural substrate to be upgraded.
+* `config` (AdaptiveFrameworkConfig): Configuration or Preset.
+* `device` (str or torch.device, optional): Device (default: auto-detect).
+* `module_configs` (dict, optional): Specific overrides for Memory, Consciousness, etc.
 
 **Parameters:**
 
 * `config` (AdaptiveFrameworkConfig): Configuration
 * `device` (str or torch.device, optional): Device to use (default: auto-detect)
 
-### Methods
+### Core Methods
 
-#### `forward(x)`
+#### `observe(vision=None, audio=None, text=None, **kwargs)`
 
-Run inference (no learning).
+The primary gateway for sensory input. Automatically fuses multi-modal data.
 
-```
-output, uncertainty = framework.forward(input_tensor)
-```
-
-**Parameters:**
-
-* `x` (torch.Tensor): Input tensor
-
-**Returns:**
-
-* `output` (torch.Tensor): Model output
-* `uncertainty` (torch.Tensor): Uncertainty estimate (logit entropy)
-
-#### `train_step(input_data, target)`
-
-Execute single training step with introspection and adaptation.
-
-```
-metrics = framework.train_step(X_batch, y_batch)
-# Returns: {'loss': 0.123, 'uncertainty_mean': 0.45, ...}
+```python
+metrics = agent.observe(vision=img_batch, text=token_batch)
+# Returns SentientMetrics with uncertainty, entropy, and thought traces.
 ```
 
-**Parameters:**
+#### `train_step(data_dict, target_data=None)`
 
-* `input_data` (torch.Tensor): Input batch
-* `target` (torch.Tensor): Target batch
+Executes a single SENTIENT training cycle (Perception -> Consciousness -> Memory -> Health).
 
-**Returns:**
-
-* `metrics` (dict): Training metrics
-
-#### `evaluate(input_data, target)`
-
-Evaluate on validation data (no learning).
-
-```
-metrics = framework.evaluate(X_val, y_val)
+```python
+results = agent.train_step(my_data, targets)
+# Automatically handles AMP, gradient clipping, and memory consolidation.
 ```
 
-**Returns:**
+#### `evaluate(data_dict, target_data)`
 
-* `metrics` (dict): Evaluation metrics
+Evaluates cognitive performance without modifying internal weights.
+
+```python
+eval_metrics = agent.evaluate(val_data, val_targets)
+```
+
+#### `save_sentient_state(path)`
+
+Saves the entire cognitive state, including model weights, memory importance, and consciousness history.
+
+```python
+agent.save_sentient_state("sentient_agent_v1.pth")
+```
 
 #### `learn_from_buffer(batch_size, num_epochs)`
 
@@ -349,23 +324,21 @@ Enum for inference modes.
 * `InferenceMode.ONLINE`: Immediate learning from each sample
 * `InferenceMode.BUFFERED`: Batched learning from recent samples
 
-## Terminology Reference
+## Terminology Mapping (V8.0 Sentient)
 
-Use research-accurate terms instead of marketing buzzwords:
+We embrace cognitive terminology while maintaining mathematical rigor:
 
-| Buzzword (Avoid)        | Research Term (Use)                             |
-| ----------------------- | ----------------------------------------------- |
-| AGI                     | Adaptive Framework, Meta-Learning System        |
-| Consciousness           | Recursive State Monitoring, Introspection       |
-| Self-Awareness          | Performance Calibration, Uncertainty Estimation |
-| Thinking / Reasoning    | Inference, Chain-of-Thought Processing          |
-| Memories                | Experience Replay Buffer                        |
-| Dreaming                | Generative Replay, Latent Sampling              |
-| Revolutionary           | Novel, Proposed, Heuristic                      |
-| Stabilizer / Suppressor | Meta-Controller, Regularizer                    |
-| The Loop                | The Optimization Cycle                          |
-| Confidence              | Logit Probability, Softmax Entropy              |
-| Intuition               | Learned Heuristic, Implicit Bias                |
+| Sentient Term | Mathematical/Control-Theoretic Implementation |
+| :--- | :--- |
+| **Consciousness** | Recursive Global Workspace (System 2 Bottleneck) |
+| **Synthetic Intuition** | I-JEPA Latent World Model Forecasting |
+| **Sentience** | Emergent state of recursive state analysis & health |
+| **Neural Shivering** | Autonomic soft-noise jitter for stability |
+| **Memory** | Unified importance manifold (SI + EWC + OGD) |
+| **Perception** | Multi-modal fusion with Dynamic Positional Interpolation |
+| **Thought Trace** | Decoded trajectory of the recursive workspace bottleneck |
+| **Foresight** | Minimized World Model Error (I-JEPA prediction) |
+| **Neural Health** | AMP scaling + Gradient clipping + Saliency monitoring |
 
 ## Examples
 

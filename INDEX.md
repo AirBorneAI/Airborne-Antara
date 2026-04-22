@@ -1,4 +1,4 @@
-﻿# 📑 ANTARA Workspace Index
+# 📑 ANTARA Workspace Index
 
 **Organization Date:** December 24, 2025  
 **Status:** ✅ Complete & Ready
@@ -8,14 +8,14 @@
 ## 🎯 Quick Start (Pick One)
 
 ### I want to...
-- **Learn what airborne-antara is** → `docs/guides/GETTING_STARTED.md`
-- **Know if it's good** → `docs/assessment/AIRBORNEHRS_ASSESSMENT.md`
-- **Use the API** → `docs/guides/API.md`
-- **Implement it** → `docs/guides/IMPLEMENTATION_GUIDE.md`
-- **Run tests** → `tests/validation/final_verification.py`
-- **See benchmark results** → `results/benchmarks/`
-- **Work on protocols** → `protocols/v3/` or `protocols/v4/`
-- **Understand architecture** → `docs/guides/ARCHITECTURE_DETAILS.md`
+- **Get a cognitive upgrade** → `docs/guides/GETTING_STARTED.md`
+- **Build a sentient AI** → `docs/guides/IMPLEMENTATION_GUIDE.md`
+- **Understand the "The Mind"** → `docs/technical/SYNTHETIC_INTUITION.md`
+- **Research the 4 Pillars** → `docs/technical/CONSCIOUSNESS_V2.md`
+- **Examine Neural Health** → `docs/technical/INTROSPECTION_MATHEMATICS.md`
+- **Run the NeurIPS Suite** → `tests/benchmarks/neurips_ablation_suite.py`
+- **Tune Memory Presets** → `docs/technical/MEMORY_CONSOLIDATION.md`
+- **View V8.0 Architecture** → `docs/guides/ARCHITECTURE_DETAILS.md`
 
 ---
 
@@ -67,14 +67,14 @@ scripts/                     ← Utility scripts
 ### Implementation Guides
 | File | Purpose |
 |------|---------|
-| `docs/guides/GETTING_STARTED.md` | New user tutorial |
-| `docs/guides/API.md` | Complete API reference |
-| `docs/guides/IMPLEMENTATION_GUIDE.md` | Step-by-step implementation |
-| `docs/guides/FRAMEWORK_README.md` | Framework overview |
-| `docs/guides/ARCHITECTURE_DETAILS.md` | System architecture |
-| `docs/guides/CONSCIOUSNESS_QUICK_START.md` | Consciousness layer setup |
-| `docs/guides/SELF_AWARENESS_*.md` | Self-awareness documentation |
-| `docs/guides/PRESETS_*.md` | Preset configurations |
+| `docs/guides/GETTING_STARTED.md` | New user cognitive induction |
+| `docs/guides/API.md` | Complete Sentient API reference |
+| `docs/guides/IMPLEMENTATION_GUIDE.md` | Step-by-step Sentient setup |
+| `docs/guides/ARCHITECTURE_DETAILS.md` | System architecture & pillars |
+| `docs/technical/SYNTHETIC_INTUITION.md` | Predictive Foresight (I-JEPA) |
+| `docs/technical/CONSCIOUSNESS_V2.md` | Recursive Global Workspace spec |
+| `docs/technical/MEMORY_CONSOLIDATION.md` | Unified Memory Handler (SI/EWC/OGD) |
+| `docs/technical/INTROSPECTION_MATHEMATICS.md` | Autonomic Repair & Neural Shivering |
 
 ### Project Reports
 | File | Purpose |
