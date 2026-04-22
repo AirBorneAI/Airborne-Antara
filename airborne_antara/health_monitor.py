@@ -45,29 +45,38 @@ class NeuralHealthMonitor:
                 report[name] = status
         return report
 
-    def autonomic_repair(self, report: Dict[str, str], projector=None):
+    def autonomic_repair(self, report: Dict[str, str], projector=None, expert_usage: Dict[int, float] = None):
         """
-        [V9.2] Soft Jitter Rejuvenation.
-        Instead of resetting weights, we inject controlled noise to 'wake up' dead neurons.
+        [V9.3] MoE-Aware Soft Jitter Rejuvenation.
+        Preserves knowledge in idle experts while fixing truly dead neurons.
         """
         repairs_made = 0
         for name, status in report.items():
             if status in ["DEAD", "SATURATED"]:
+                # [V9.3] MoE Awareness: Skip if layer belongs to an idle expert
+                if expert_usage is not None and "experts." in name:
+                    try:
+                        # Extract expert index (e.g., 'experts.0.model...')
+                        parts = name.split("experts.")
+                        if len(parts) > 1:
+                            expert_idx = int(parts[1].split(".")[0])
+                            # If expert hasn't been used in this window, skip repair
+                            if expert_usage.get(expert_idx, 0) == 0:
+                                continue
+                    except (ValueError, IndexError):
+                        pass
+
                 # [V9.2] Neural Shivering: Small Gaussian noise to break equilibrium
                 self.logger.info(f"[REPAIR] Autonomic Shiver: Rejuvenating {status} layer '{name}'")
                 
                 param = dict(self.model.named_parameters())[name]
-                # Scale noise by standard deviation or a small epsilon to avoid destruction
                 noise_scale = 1e-4 # Conservative jitter
                 
                 noise = torch.randn_like(param.data) * noise_scale
-                
-                # [V9.2 HARDENING] Project noise onto null-space if projector exists
                 if projector is not None:
                     noise = projector.project_gradient(name, noise)
                 
                 param.data.add_(noise)
-                
                 repairs_made += 1
                 
             elif status == "CRITICAL":

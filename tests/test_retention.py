@@ -105,12 +105,12 @@ def plot_single(history, tasks, title, filename):
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(filename, dpi=150)
-    print(f"✅ Saved: {filename}")
+    print(f"DONE: Saved: {filename}")
     plt.close()
 
 # ============ PLOT 1: Full Framework ============
 def generate_plot1():
-    print("\n🚀 [Plot 1/3] Full AirborneHRS Framework on A->B->C->D...")
+    print("\n[STEP 1/3] Full AirborneHRS Framework on A->B->C->D...")
     cfg = AdaptiveFrameworkConfig(
         device='cpu', memory_type='hybrid', ewc_lambda=1000.0,
         dream_interval=1, enable_consciousness=True
@@ -123,7 +123,7 @@ def generate_plot1():
 
 # ============ PLOT 2: Framework vs Baseline ============
 def generate_plot2():
-    print("\n🚀 [Plot 2/3] Framework vs Naive Baseline...")
+    print("\n[STEP 2/3] Framework vs Naive Baseline...")
     tasks = ['A', 'B', 'C', 'D']
     
     # Full Framework
@@ -158,12 +158,12 @@ def generate_plot2():
     plt.grid(True, axis='y', alpha=0.3)
     plt.tight_layout()
     plt.savefig("tests/retention_vs_baseline.png", dpi=150)
-    print("✅ Saved: tests/retention_vs_baseline.png")
+    print("DONE: Saved: tests/retention_vs_baseline.png")
     plt.close()
 
 # ============ PLOT 3: Ablation Study ============
 def generate_plot3():
-    print("\n🚀 [Plot 3/3] Ablation Study (Memory & Consciousness)...")
+    print("\n[STEP 3/3] Ablation Study (Memory & Consciousness)...")
     tasks = ['A', 'B', 'C', 'D']
     results = {}
     
@@ -215,7 +215,7 @@ def generate_plot3():
     plt.grid(True, axis='y', alpha=0.3)
     plt.tight_layout()
     plt.savefig("tests/ablation_plot.png", dpi=150)
-    print("✅ Saved: tests/ablation_plot.png")
+    print("DONE: Saved: tests/ablation_plot.png")
     plt.close()
 
 # ============ MAIN ============
@@ -229,7 +229,7 @@ if __name__ == "__main__":
     generate_plot3()
     
     print("\n" + "="*50)
-    print("✨ All 3 plots generated successfully!")
+    print("FINISH: All 3 plots generated successfully!")
     print("   - tests/retention_plot.png")
     print("   - tests/retention_vs_baseline.png")
     print("   - tests/ablation_plot.png")

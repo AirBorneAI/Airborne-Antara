@@ -192,11 +192,20 @@ class HierarchicalMoE(nn.Module):
         ])
         
     def get_expert_usage(self):
-        """Returns [num_domains, experts_per_domain] usage counts."""
-        usage = []
+        """Returns flattened usage counts across all domains."""
+        usage = {}
+        idx = 0
         for domain in self.domains:
-            usage.append(domain.get_usage_stats())
-        return np.array(usage)
+            stats = domain.get_usage_stats()
+            for s in stats:
+                usage[idx] = float(s)
+                idx += 1
+        return usage
+        
+    def reset_usage(self):
+        """Reset usage stats for windowed monitoring."""
+        for domain in self.domains:
+            domain.expert_usage.zero_()
     
     def forward(self, x):
         """

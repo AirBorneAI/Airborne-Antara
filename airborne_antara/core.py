@@ -787,12 +787,22 @@ class AdaptiveFramework(nn.Module):
                     self.slow_weights[n] = new_slow
                     p.data.copy_(new_slow)
 
-    def train_step(self, *model_inputs, target_data, enable_dream: bool = True, meta_step: bool = True, record_stats: bool = True):
+    def train_step(self, *model_inputs, target_data, task_id: int = 0, enable_dream: bool = True, meta_step: bool = True, record_stats: bool = True):
         """
         Single training step with V8.0 enhancements.
         """
         self.model.train()
+        
+        # [V9.2 CRITICAL BUGFIX] Zero ALL optimizers
+        # Previously only the main optimizer was zeroed, causing gradient 
+        # accumulation in adapters and System 2, leading to corruption.
         self.optimizer.zero_grad()
+        if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
+            self.adapter_optimizer.zero_grad()
+        if hasattr(self, 'meta_optimizer') and self.meta_optimizer:
+            self.meta_optimizer.zero_grad()
+        if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
+            self.world_model_optimizer.zero_grad()
         
         # [V9.2 BUGFIX] Properly capture param_before for Synaptic Intelligence / Memory Accumulation
         param_before = {}
@@ -829,11 +839,19 @@ class AdaptiveFramework(nn.Module):
                 )
                 consciousness_metrics = obs
             
-            # Compute Loss (Classification/Regression detected automatically)
-            if logits.shape == target_data.shape:
-                loss = F.mse_loss(logits.float(), target_data.float())
+            # [V9.2 STABILIZATION] Task-Aware Logit Masking
+            # Only compute loss for the classes belonging to the current task if dimensions match (e.g. Cifar100).
+            if task_id is not None and logits.shape[1] >= (task_id + 1) * 10:
+                start_cls = task_id * 10
+                end_cls = (task_id + 1) * 10
+                
+                # Classification Path: Map global target labels to local task indices (0-9)
+                _targets = target_data - start_cls
+                task_logits = logits[:, start_cls:end_cls].view(-1, end_cls - start_cls)
+                loss = F.cross_entropy(task_logits, _targets.view(-1))
             else:
-                loss = F.cross_entropy(logits.view(-1, logits.size(-1)), target_data.view(-1))
+                # Regression/Standard Path: Fallback for different architectures (e.g. Regression tasks)
+                loss = F.mse_loss(logits, target_data)
             
             # 4. Memory Regularization
             reg_loss = torch.tensor(0.0, device=self.device)
@@ -857,8 +875,10 @@ class AdaptiveFramework(nn.Module):
         
         # Unscale for gradient clipping/centralization
         self.scaler.unscale_(self.optimizer)
+        if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
+            self.scaler.unscale_(self.adapter_optimizer)
         
-        # 6. [V8.0] Gradient Management
+        # [V9.2] Memory Handler now sees UNSCALED gradients for OGD projection
         if self.config.use_gradient_centralization:
             self._apply_gradient_centralization()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.gradient_clip_norm)
@@ -957,7 +977,18 @@ class AdaptiveFramework(nn.Module):
         if self.health_monitor and self.step_count % self.config.health_check_interval == 0:
             report = self.health_monitor.check_vital_signs()
             projector = getattr(self.memory, 'projector', None) if self.memory else None
-            repairs = self.health_monitor.autonomic_repair(report, projector=projector)
+            
+            # [V9.3] Fetch and Pass Expert Usage for selective repair
+            expert_usage = None
+            if hasattr(self.model, 'get_expert_usage'):
+                expert_usage = self.model.get_expert_usage()
+                
+            repairs = self.health_monitor.autonomic_repair(report, projector=projector, expert_usage=expert_usage)
+            
+            # Reset usage for the next health window
+            if hasattr(self.model, 'reset_usage'):
+                self.model.reset_usage()
+                
             if repairs > 0:
                 self.logger.info(f"[AUTONOMIC] Neural Health Stabilized ({repairs} repairs).")
 

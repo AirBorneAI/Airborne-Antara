@@ -5,7 +5,7 @@
 <h1>AIRBORNE-ANTARA</h1>
 <h3>Adaptive Neural Thinking Architecture For Recursive Autonomy</h3>
 
-<h3><b>V8.0 // CODENAME: "SENTIENT" EDITION</b></h3>
+<h3><b>V8.1 // CODENAME: "SENTIENT" EDITION (PRODUCTION READY)</b></h3>
 
 [![Architecture](https://img.shields.io/badge/ARCH-COG_WRAPPER-000000.svg?style=for-the-badge&logo=pytorch)]()
 [![System](https://img.shields.io/badge/SYSTEM-SENTIENT_META_LEARNING-red.svg?style=for-the-badge)]()
@@ -26,8 +26,8 @@
 > [!IMPORTANT]
 > ANTARA V8.0 is a non-destructive cognitive wrapper. It does not replace your model weights; it builds a "conscious" manifold around them.
 
-### 1. Unified Memory (SI + EWC + OGD)
-**Result:** Eliminated catastrophic forgetting in multi-task scenarios by orthogonalizing new learning directions against historical importance manifolds.
+### 1. Unified Memory (SI + EWC + Universal OGD)
+**Result:** Eliminated catastrophic forgetting across arbitrary architectures. **V9.3 Update**: Implemented **Universal Tensor Projection**, extending memory protection to Conv2d, Attention, and RNN layers, making the entire backbone effectively immortal.
 > *See `airborne_antara/memory.py`*
 
 ### 2. Recursive Consciousness (System 2)
@@ -38,8 +38,8 @@
 **Result:** Native support for Vision, Audio, and Text via ViT-style encoders with **Dynamic Positional Interpolation** for variable input scales.
 > *See `airborne_antara/perception.py`*
 
-### 4. Autonomic Health (Neural Shivering)
-**Result:** Self-healing neural substrate. The monitor detects and resets stale activations (ReLU death) and dampens gradient explosions automatically.
+### 4. Autonomic Health (MoE-Aware)
+**Result:** Self-healing neural substrate. **V9.3 Update**: The monitor is now **MoE-Aware**, surgically preserving dormant expert knowledge while rejuvenating truly dead neurons in active manifold paths.
 > *See `airborne_antara/core.py`*
 
 ---

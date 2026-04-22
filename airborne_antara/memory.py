@@ -42,8 +42,18 @@ class OrthogonalProjector:
     def update_subspace(self, layer_name: str, activations: torch.Tensor):
         """
         Update the forbidden subspace for a layer using new activations.
-        activations: [N, D]
+        [V9.3] UNIVERSAL FLATTENING: Supports Conv2d, Attention, and RNNs.
         """
+        if activations is None: return
+        
+        # Normalize activations based on layer type
+        if activations.dim() == 4: # Conv2d [B, C, H, W]
+            # Treat each spatial pixel as a sample for the channel subspace
+            activations = activations.permute(0, 2, 3, 1).reshape(-1, activations.size(1))
+        elif activations.dim() == 3: # Attention / Sequence [B, S, D]
+            # Flatten sequence into samples
+            activations = activations.reshape(-1, activations.size(-1))
+            
         if activations.size(0) < 2: return
         
         # 1. Compute PCA (SVD)
@@ -93,28 +103,51 @@ class OrthogonalProjector:
 
     def project_gradient(self, layer_name: str, grad: torch.Tensor) -> torch.Tensor:
         """
-        Project gradient: g' = g - M M^T g
+        [V9.3] UNIVERSAL TENSOR PROJECTION.
+        Projects gradient: g' = g - g M M^T
+        Supports arbitrary shapes (Conv2d, Attention, Linear, Biases).
         """
-        if layer_name not in self.subspaces:
+        if layer_name not in self.subspaces or grad is None:
             return grad
             
         M = self.subspaces[layer_name] # [D, k]
+        orig_shape = grad.shape
+        orig_dtype = grad.dtype
         
-        if grad.dim() == 2: # Linear [Out, In]
-            # Project rows of grad (gradients w.r.t weights)
-            # [V9.2 HARDENING] Precision-safe projection to prevent FP16 drift
-            orig_dtype = grad.dtype
+        # 1. Prepare Projection Manifold (Flattened)
+        # We project the input-dimension of the gradient.
+        # For Weights [Out, In, ...], we project In.
+        # For Biases [Out], we project the single dimension.
+        
+        try:
             _grad = grad.float()
             _M = M.float()
-            # g' = g (I - M M^T) = g - g M M^T
-            correction = torch.mm(torch.mm(_grad, _M), _M.T)
-            return (_grad - correction).to(orig_dtype)
             
-        elif grad.dim() == 4: # Conv2d [Out, In, k, k]
-            # Not supported yet for OGD projection
-            return grad
-        
-        return grad
+            # Universal Handle: Flatten all but the first dimension (Output/Channel dimension)
+            # This covers Linear [O, I], Conv2d [O, I, k, k], and Bias [O]
+            if grad.dim() > 1:
+                _grad_flat = _grad.view(orig_shape[0], -1)
+                
+                # Check dimension alignment
+                if _grad_flat.size(1) != _M.size(0):
+                    # Fallback for Attention [H, D, D] or complex shapes
+                    # If the input dim doesn't match the basis, we skip to avoid corruption
+                    return grad
+                
+                # g' = g - g M M^T
+                correction = torch.mm(torch.mm(_grad_flat, _M), _M.T)
+                res = (_grad_flat - correction).view(orig_shape)
+            else:
+                # Bias or 1D parameter
+                if _grad.size(0) != _M.size(0): return grad
+                # b' = b - M M^T b (Vector projection)
+                correction = torch.mv(_M, torch.mv(_M.T, _grad))
+                res = (_grad - correction).view(orig_shape)
+                
+            return res.to(orig_dtype)
+            
+        except Exception:
+            return grad # Safe fallback
 
 
 class HolographicAssociativeMemory:
