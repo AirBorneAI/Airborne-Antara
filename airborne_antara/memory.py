@@ -760,7 +760,27 @@ class PrioritizedReplayBuffer:
     def add(self, snapshot, z_score: float = 0.0, importance: float = 1.0):
         """
         Add a snapshot with cognitive annotations.
+        Forces CPU-offloading to prevent VRAM OOM during long gauntlets.
         """
+        def _to_cpu(x):
+            if isinstance(x, torch.Tensor):
+                # [V9.2] Holographic Saliency Pooling for "Bigger Images"
+                # If tensor is a high-res image (4D), downsample to prevent CPU RAM exhaustion
+                if x.dim() == 4 and x.size(2) > 128:
+                    # Adaptive pooling to 128x128 for memory safety
+                    x = F.adaptive_avg_pool2d(x, (128, 128))
+                return x.detach().cpu()
+            if isinstance(x, dict): return {k: _to_cpu(v) for k, v in x.items()}
+            if isinstance(x, (list, tuple)): return type(x)(_to_cpu(v) for v in x)
+            if hasattr(x, "__dict__"):
+                # Handle PerformanceSnapshot or similar objects
+                for k, v in x.__dict__.items():
+                    if k not in ['z_score', 'importance', 'age_in_steps']:
+                        setattr(x, k, _to_cpu(v))
+                return x
+            return x
+
+        snapshot = _to_cpu(snapshot)
         snapshot.z_score = float(z_score)
         snapshot.importance = float(importance)
         snapshot.age_in_steps = 0

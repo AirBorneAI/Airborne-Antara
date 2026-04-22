@@ -110,12 +110,13 @@ class AdaptiveFrameworkConfig:
     # SI Parameters (Restored)
     importance_method: str = 'ewc'  # 'ewc', 'si', or 'hybrid'
     si_lambda: float = 1.0 # For SI
-    ewc_lambda: float = 5000.0 # [FIX] Boost EWC strength significantly
+    ewc_lambda: float = 150.0 # [FIX] Lowered from 5000 to allow baseline plasticity
     si_xi: float = 1e-3
     use_graph_memory: bool = False # [V9.0] Graph-Based Episodic Memory
     graph_memory_threshold: float = 0.85
-    use_ogd: bool = False # [V9.1] Orthogonal Gradient Descent projection
-    ogd_max_basis_size: int = 256 # [V9.2] Limit OGD subspace size
+    use_ogd: bool = False 
+    ogd_max_basis_size: int = 256
+    enable_holographic_compression: bool = True # [V9.2] Future-Proofing
 
     # [V8.0] Optimization
     use_lookahead: bool = True
@@ -170,7 +171,7 @@ class AdaptiveFrameworkConfig:
             use_prioritized_replay=True,
             adaptive_lambda=True,
             enable_consciousness=True,
-            ewc_lambda=5000.0,
+            ewc_lambda=150.0,
             dream_interval=2,
             dream_batch_size=32
         )
@@ -216,17 +217,23 @@ class FeedbackBuffer:
         
     def add(self, input_args: tuple, input_kwargs: dict, output: torch.Tensor, target: torch.Tensor, reward: float, loss: float):
         # Move to CPU immediately to save VRAM
-        def to_cpu(x):
-            if isinstance(x, torch.Tensor): return x.detach().cpu()
-            if isinstance(x, dict): return {k: to_cpu(v) for k, v in x.items()}
-            if isinstance(x, list): return [to_cpu(v) for v in x]
+        def _to_cpu(x):
+            if isinstance(x, torch.Tensor):
+                # [V9.2] Holographic Saliency Pooling for "Bigger Images"
+                # If tensor is a high-res image (4D), downsample to prevent CPU RAM exhaustion
+                if x.dim() == 4 and x.size(2) > 128:
+                    # Adaptive pooling to 128x128 for memory safety
+                    x = F.adaptive_avg_pool2d(x, (128, 128))
+                return x.detach().cpu()
+            if isinstance(x, dict): return {k: _to_cpu(v) for k, v in x.items()}
+            if isinstance(x, list): return [_to_cpu(v) for v in x]
             return x
 
         snapshot = PerformanceSnapshot(
-            input_args=tuple(to_cpu(arg) for arg in input_args),
-            input_kwargs={k: to_cpu(v) for k, v in input_kwargs.items()},
-            output=output.detach().cpu(),
-            target=target.detach().cpu(),
+            input_args=tuple(_to_cpu(arg) for arg in input_args),
+            input_kwargs={k: _to_cpu(v) for k, v in input_kwargs.items()},
+            output=_to_cpu(output),
+            target=_to_cpu(target),
             reward=reward,
             loss=loss,
             timestamp=datetime.now().timestamp(),
@@ -368,9 +375,12 @@ class AdaptiveFramework(nn.Module):
         self.device = device
         self.logger = self._setup_logging()
         
-        # [V8.3] Surgical Hardening: Mode flag for hibernating cognitive loops
+        # [V8.3] Maintenance Mode Flag
         self._internal_consolidation_mode = False
 
+        # [V9.2] Mixed Precision Support for scaling to high resolutions
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.config.use_amp and self.device.type == 'cuda')
+        
         # 1. The "Body" (Base Model)
         self.model = user_model.to(self.device)
         
@@ -638,10 +648,6 @@ class AdaptiveFramework(nn.Module):
                                     f = f.unsqueeze(-1)
                                 scale = 1.0 + s
                                 shift = f
-                            else:
-                                scale = 1.0 + mods[0, 0]
-                                shift = mods[0, 1]
-                                
                         inp = inp * scale + shift
                     
                     if inp is not output:
@@ -718,7 +724,7 @@ class AdaptiveFramework(nn.Module):
             with torch.no_grad():
                 self._current_z_prediction = self.world_model(fused_latent, action_context)
             
-        return output, log_var, affine_modifiers
+        return output, log_var, affine_modifiers, moe_indices
 
     def clear_cognitive_buffers(self):
         """[V8.3] Explicitly clear all meta-learning and consciousness buffers."""
@@ -774,167 +780,72 @@ class AdaptiveFramework(nn.Module):
         self.model.train()
         self.optimizer.zero_grad()
         
-        # 1. Forward Pass
-        # Use self.forward() to handle multi-modal dictionary inputs
-        outputs, log_var, affine_modifiers = self.forward(*model_inputs)
+        # 3. Forward Pass & Loss Calculation
+        # [V9.2] Wrap in amp autocast for multi-modal scaling (Big Images / LLM)
+        with torch.cuda.amp.autocast(enabled=self.config.use_amp and self.device.type == 'cuda'):
+            # Captured MoE routing for diversity metrics
+            output, log_var, modifiers, moe_indices = self.forward(*model_inputs)
             
-        # Extract logits/features
-        if hasattr(outputs, 'logits'):
-            logits = outputs.logits
-            features = outputs.hidden_states[-1] if getattr(outputs, 'hidden_states', None) is not None else None
-        elif isinstance(outputs, tuple):
-            logits = outputs[0]
-            features = outputs[1] if len(outputs) > 1 else None
-        else:
-            logits = outputs
-            features = None 
-            
-        # 2. Compute Loss
-        if logits.shape == target_data.shape: # Regression
-            loss = F.mse_loss(logits.float(), target_data.float())
-        else: # Classification
-            # Handle Sequence Classification [Batch, Seq, Vocab] vs [Batch, Seq]
-            if logits.dim() == 3 and target_data.dim() == 2:
-                 # Check if Classification (Long) or Regression (Float)
-                 if target_data.dtype == torch.long or target_data.shape[1] != logits.shape[2]:
-                     # Flatten for CrossEntropy: [B*Seq, Vocab] vs [B*Seq]
-                     loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), target_data.reshape(-1))
-                 else:
-                     # Regression: Pool Sequence [B, S, D] -> [B, D] vs [B, D]
-                     pooled_logits = logits.mean(dim=1)
-                     loss = F.mse_loss(pooled_logits.float(), target_data.float())
-            elif logits.dim() > target_data.dim() and target_data.dim() == 1:
-                 if target_data.dtype != torch.long:
-                     target_data = target_data.long()
-                 loss = F.cross_entropy(logits.view(-1, logits.size(-1)), target_data.view(-1))
+            # Unpack standard model outputs
+            if isinstance(output, tuple):
+                logits = output[0]
+                features = output[1] if len(output) > 1 else None
             else:
-                 loss = F.mse_loss(logits.float(), target_data.float())
-            
-        # [V9.0] World Model Training & Predictive Surprise
-        if self.world_model and hasattr(self, '_last_fused_latent'):
-             fused_latent_t = self._last_fused_latent
-             
-             # If we have inputs from the PREVIOUS step, we can train the WM to predict CURRENT z
-             if hasattr(self, '_prev_wm_inputs') and self._prev_wm_inputs is not None:
-                  z_prev, a_prev = self._prev_wm_inputs
-                  
-                  # 1. Forward pass (with gradients) for the PREVIOUS prediction
-                  # This is now at Step T, predicting Step T using Step T-1 context
-                  z_pred_t = self.world_model(z_prev, a_prev)
-                  
-                  # 2. Compute surprise and loss relative to CURRENT actual latent
-                  surprise, wm_loss = self.world_model.compute_surprise(z_pred_t, fused_latent_t.detach())
-                  self._world_model_surprise = surprise.mean().item()
-                  
-                  # 3. Optimize World Model (Self-contained in this step)
-                  self.world_model_optimizer.zero_grad()
-                  (wm_loss * self.config.world_model_loss_weight).backward()
-                  self.world_model_optimizer.step()
-             
-             # Shift inputs for next training step
-             self._prev_wm_inputs = getattr(self, '_current_wm_inputs', None)
+                logits = output
+                features = None
 
-        # 3. [V8.0] Consciousness Observation (System 2)
-        consciousness_metrics = {}
-        if self.consciousness:
-            # FIX: Pass logits directly, do not argmax here.
-            # Consciousness module handles cross_entropy from logits.
-            y_pred_for_cons = pooled_logits if 'pooled_logits' in locals() else logits
-                
-            # Observe and Think (Recursive Global Workspace)
-            # Use features if available, else fused latent, else None (don't use raw IDs)
-            if features is not None:
-                cons_features = features.detach()
-            elif hasattr(self, '_last_fused_latent') and self._last_fused_latent is not None:
-                # [V8.0] Use fused latent state for consciousness
-                cons_features = self._last_fused_latent.detach()
+            # [V8.0] Consciousness Observation (System 2)
+            consciousness_metrics = {}
+            if self.consciousness:
+                # Observe and Think (Recursive Global Workspace)
+                # Use features if available, else fused latent, else None
+                cons_features = features.detach() if features is not None else None
+                obs = self.consciousness.observe(
+                    y_true=target_data, 
+                    y_pred=logits, 
+                    features=cons_features,
+                    internal_mode=self._internal_consolidation_mode
+                )
+                consciousness_metrics = obs
+            
+            # Compute Loss (Classification/Regression detected automatically)
+            if logits.shape == target_data.shape:
+                loss = F.mse_loss(logits.float(), target_data.float())
             else:
-                cons_features = None
+                loss = F.cross_entropy(logits.view(-1, logits.size(-1)), target_data.view(-1))
             
-            obs = self.consciousness.observe(
-                y_true=target_data, 
-                y_pred=y_pred_for_cons, 
-                features=cons_features,
-                internal_mode=self._internal_consolidation_mode
-            )
-            consciousness_metrics = obs
-            
-            # Apply Plasticity (Learning Rate Multiplier)
-            # Use the multiplier from the emotional/metacognition system
-            plasticity = obs.get('learning_rate_multiplier', 1.0)
-            
-            # [V9.0] Inject Predictive Surprise into Plasticity
-            if hasattr(self, '_world_model_surprise'):
-                 gamma = getattr(self.config, 'world_model_plasticity_gamma', 1.0)
-                 surprise = self._world_model_surprise
-                 # V2 Paper Formula: eta_base * (1 + gamma * tanh(S))
-                 plasticity *= (1.0 + gamma * torch.tanh(torch.tensor(surprise, device=self.device)))
-            
-            for param_group in self.optimizer.param_groups:
-                param_group['lr'] = self.config.learning_rate * plasticity
+            # 4. Memory Regularization
+            reg_loss = torch.tensor(0.0, device=self.device)
+            if self.memory:
+                penalty = self.memory.compute_penalty()
+                # [V9.2] Dynamic Surprise Scaling
+                if 'surprise' in consciousness_metrics:
+                    scaling_factor = 1.0 / (1.0 + float(consciousness_metrics['surprise']))
+                    penalty *= scaling_factor
+                reg_loss = penalty
 
-        # 4. Memory Regularization
-        reg_loss = torch.tensor(0.0, device=self.device)
-        if self.memory:
-            reg_loss = self.memory.compute_penalty(
-                adaptive_mode=self.meta_controller.current_mode if self.meta_controller else 'NORMAL',
-                step_in_mode=0
-            )
-            
-            # Add to buffers
-            if record_stats:
-                snapshot = type('Snapshot', (), {})()
-                snapshot.input_args = model_inputs
-                snapshot.target = target_data
-                
-                # Holographic
-                if hasattr(self.memory, 'holographic_memory') and self.memory.holographic_memory and features is not None:
-                    self.memory.holographic_memory.add(snapshot, features.detach())
-                
-                # [V9.0] Graph Memory (Relational)
-                if hasattr(self.memory, 'graph_memory') and self.memory.graph_memory and features is not None:
-                    self.memory.graph_memory.add(snapshot, features.detach())
-                    
-                # Replay Buffer
-                if hasattr(self.memory, 'replay_buffer') and self.memory.replay_buffer:
-                    z_score = consciousness_metrics.get('surprise', 0.0)
-                    self.memory.replay_buffer.add(snapshot, z_score=z_score)
+            # [V9.2] Expert Balancing Loss
+            aux_loss = torch.tensor(0.0, device=self.device)
+            if hasattr(self.model, 'get_aux_loss'):
+                aux_loss = self.model.get_aux_loss() * 0.1
 
-        # [V8.1] CRITICAL FIX: Populate feedback_buffer for dreaming/consolidation
-        # This must be OUTSIDE the self.memory block to always run
-        if self.feedback_buffer and record_stats:
-            loss_val = loss.item() if hasattr(loss, 'item') else float(loss)
-            self.feedback_buffer.add(
-                input_args=model_inputs,
-                input_kwargs={},
-                output=logits.detach(),
-                target=target_data.detach(),
-                reward=-loss_val,  # Negative loss as reward signal
-                loss=loss_val
-            )
+            total_loss = loss + reg_loss + aux_loss
 
-        total_loss = loss + reg_loss
-
+        # 5. Backward Pass with AMP Scaling
+        self.scaler.scale(total_loss).backward(retain_graph=len(self.meta_log_probs) > 0)
         
-        # 5. Backward Pass
-        # Retain graph for meta-optimization if needed
-        total_loss.backward(retain_graph=len(self.meta_log_probs) > 0)
+        # Unscale for gradient clipping/centralization
+        self.scaler.unscale_(self.optimizer)
         
-        # 6. [V8.0] Gradient Centralization
+        # 6. [V8.0] Gradient Management
         if self.config.use_gradient_centralization:
             self._apply_gradient_centralization()
-            
-        # 7. OGD Projection
-        if self.memory and self.memory.projector:
-            for n, p in self.model.named_parameters():
-                if p.grad is not None:
-                    p.grad.data = self.memory.projector.project_gradient(n, p.grad.data)
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.gradient_clip_norm)
         
-        # 8. Optimizer Step
-        if self.memory:
-            param_before = self.memory.before_step_snapshot()
-            
-        # [V8.0] Sentient Meta-Optimization Loop (REINFORCE with Advantage)
+        # 7. Optimizer Step via Scaler
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+# [V8.0] Sentient Meta-Optimization Loop (REINFORCE with Advantage)
         # This module optimizes the IntrospectionEngine by treating its affine modifiers 
         # as a policy that aims to maximize immediate loss reduction.
         # Reward = (Previous Loss - Current Loss)
@@ -1032,6 +943,15 @@ class AdaptiveFramework(nn.Module):
         mode = self.meta_controller.current_mode if self.meta_controller else 'NORMAL'
         plasticity = consciousness_metrics.get('learning_rate_multiplier', 1.0)
 
+        # [V9.2] Expert Diversity Metrics
+        expert_entropy = 0.0
+        if moe_indices is not None:
+            # Calculate entropy of expert selection in this batch
+            # moe_indices: [B, k]
+            counts = torch.bincount(moe_indices.view(-1), minlength=getattr(self.model, 'num_experts', 4))
+            probs = counts.float() / counts.sum()
+            expert_entropy = -torch.sum(probs * torch.log(probs + 1e-10)).item()
+
         return {
             'loss': loss.item(),
             'reg_loss': reg_loss.item(),
@@ -1039,6 +959,7 @@ class AdaptiveFramework(nn.Module):
             'z_score': z_score,
             'mode': mode,
             'plasticity': plasticity,
+            'expert_entropy': expert_entropy,
             **consciousness_metrics
         }
 
@@ -1159,7 +1080,12 @@ class AdaptiveFramework(nn.Module):
                 )
                 metrics['reg_loss'] = reg_loss.item()
 
-            total_loss = loss + reg_loss
+            # [V9.2] Apply Expert Balancing during dreaming
+            aux_loss = torch.tensor(0.0, device=self.device)
+            if hasattr(self.model, 'get_aux_loss'):
+                aux_loss = self.model.get_aux_loss() * 0.1
+
+            total_loss = loss + reg_loss + aux_loss
             total_loss.backward()
             
             self.optimizer.step()
@@ -1278,7 +1204,7 @@ class AdaptiveFramework(nn.Module):
         with torch.no_grad():
             # 1. Forward Pass
             # This handles Perception, MoE Routing, and Introspection automatically
-            outputs, log_var, affine_modifiers = self.forward(*model_inputs)
+            outputs, log_var, affine_modifiers, moe_indices = self.forward(*model_inputs)
             
             # Extract main prediction
             if hasattr(outputs, 'logits'):

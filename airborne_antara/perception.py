@@ -34,11 +34,19 @@ class VisionEncoder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: [B, C, H, W]
         x = self.projection(x) # [B, model_dim, H', W']
+        h_p, w_p = x.size(2), x.size(3)
         x = x.flatten(2).transpose(1, 2) # [B, Seq, model_dim]
         
-        # Add positional embedding
+        # [V9.2] Dynamic Positional Interpolation
+        # Enables scaling to "Bigger Images" (e.g. 512x512) by interpolating fixed embeddings.
         seq_len = x.size(1)
-        if seq_len <= self.pos_embedding.size(1):
+        if seq_len > self.pos_embedding.size(1):
+            # Interpolate based on 2D grid structure
+            pos_tokens = self.pos_embedding.view(1, 32, 32, self.model_dim).permute(0, 3, 1, 2)
+            # Scaling up to higher res via bicubic interpolation
+            interpolated_pos = F.interpolate(pos_tokens, size=(h_p, w_p), mode='bicubic', align_corners=False)
+            x = x + interpolated_pos.permute(0, 2, 3, 1).flatten(1, 2)
+        else:
             x = x + self.pos_embedding[:, :seq_len, :]
         
         x = self.transformer(x)
