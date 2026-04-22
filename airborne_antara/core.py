@@ -151,14 +151,22 @@ class AdaptiveFrameworkConfig:
     text_dim: int = 0   # Optional projection
     perception_layers: int = 2
     perception_heads: int = 4
-
+    
+    ewc_lambda: float = 150.0 
+    si_xi: float = 1e-3
+    use_graph_memory: bool = False 
+    graph_memory_threshold: float = 0.85
+    use_ogd: bool = False 
+    ogd_max_basis_size: int = 256
+    enable_holographic_compression: bool = True 
+    
     # --- V9.0: SYNTHETIC INTUITION ---
     enable_world_model: bool = False
     world_model_loss_weight: float = 0.1
-    world_model_plasticity_gamma: float = 1.0 # [V9.2] Plasticity Gamma
+    world_model_plasticity_gamma: float = 1.0 
     enable_health_monitor: bool = True
-    health_check_interval: int = 20 # Every 20 steps
-    enable_performance_monitor: bool = False  # [V8.1] Direct weight editing via PerformanceMonitor
+    health_check_interval: int = 100 # [STABILIZATION] Increased from 20 to reduce noise
+    enable_performance_monitor: bool = False  
 
     @classmethod
     def production(cls):
@@ -272,6 +280,12 @@ class IntrospectionEngine(nn.Module):
             nn.Linear(hidden_dim, 4) 
         )
         
+        # [V9.2 STABILIZATION] Zero-initialize the policy head
+        # This ensures sentient modifiers start at Identity (Scale=1, Shift=0)
+        # preventing signal destruction during early backbone learning.
+        nn.init.zeros_(self.policy_net[-1].weight)
+        nn.init.zeros_(self.policy_net[-1].bias)
+        
     def forward(self, global_state):
         log_var = torch.tanh(self.state_monitor(global_state))
         policy_out = self.policy_net(global_state)
@@ -379,7 +393,7 @@ class AdaptiveFramework(nn.Module):
         self._internal_consolidation_mode = False
 
         # [V9.2] Mixed Precision Support for scaling to high resolutions
-        self.scaler = torch.cuda.amp.GradScaler(enabled=self.config.use_amp and self.device.type == 'cuda')
+        self.scaler = torch.amp.GradScaler('cuda', enabled=self.config.use_amp and self.device.type == 'cuda')
         
         # 1. The "Body" (Base Model)
         self.model = user_model.to(self.device)
@@ -788,8 +802,8 @@ class AdaptiveFramework(nn.Module):
                     param_before[n] = p.data.clone().detach()
         
         # 3. Forward Pass & Loss Calculation
-        # [V9.2] Wrap in amp autocast for multi-modal scaling (Big Images / LLM)
-        with torch.cuda.amp.autocast(enabled=self.config.use_amp and self.device.type == 'cuda'):
+        # [V9.2] Use modern torch.amp.autocast
+        with torch.amp.autocast('cuda', enabled=self.config.use_amp and self.device.type == 'cuda'):
             # Captured MoE routing for diversity metrics
             output, log_var, modifiers, moe_indices = self.forward(*model_inputs)
             
@@ -876,7 +890,8 @@ class AdaptiveFramework(nn.Module):
             self.meta_log_probs.clear()
             self.current_modifiers = None # Reset for next forward
 
-        self.optimizer.step()
+        # [V9.2 BUGFIX] Removed duplicate self.optimizer.step(). 
+        # Weights are already updated by self.scaler.step() above.
         
         # [V8.0] Adapter Optimizer Step
         if self.adapter_optimizer:
