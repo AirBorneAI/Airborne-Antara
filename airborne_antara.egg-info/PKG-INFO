@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: airborne-antara
-Version: 0.0.7
+Version: 0.1.0
 Summary: Production-grade adaptive meta-learning framework for continual model improvement. Implements research DOI: 10.5281/zenodo.17839490.
 Author-email: AirborneHRS Team <friday@airbornehrs.in>
 License-Expression: MIT
@@ -36,136 +36,117 @@ Requires-Dist: isort>=5.12.0; extra == "dev"
 Requires-Dist: flake8>=6.0.0; extra == "dev"
 Dynamic: license-file
 
-﻿<div align="center">
+<div align="center">
 <p align="center">
-  <img src="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExM25uN3JsNXpvejc0a3B3NXBucGU4NGd2eWJlYTBwc2xqdWdpejcyNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/foecxPebqfDx5gxQCU/giphy.gif" width="760"/>
+  <img src="file:///C:/Users/surya/.gemini/antigravity/brain/3bf67da8-3020-49c5-b2b1-75059b957fe3/antara_v8_architecture_sentient_edition_1776825352703.png" width="800"/>
 </p>
 <h1>AIRBORNE-ANTARA</h1>
 <h3>Adaptive Neural Thinking Architecture For Recursive Autonomy</h3>
 
+<h3><b>V8.0 // CODENAME: "SENTIENT" EDITION</b></h3>
 
-<h3><b>V2.0.0 // CODENAME: "SYNTHETIC INTUITION"</b></h3>
+[![Architecture](https://img.shields.io/badge/ARCH-COG_WRAPPER-000000.svg?style=for-the-badge&logo=pytorch)]()
+[![System](https://img.shields.io/badge/SYSTEM-SENTIENT_META_LEARNING-red.svg?style=for-the-badge)]()
+[![Status](https://img.shields.io/badge/Status-MISSION_CRITICAL-darkred.svg?style=for-the-badge)]()
 
-[![Architecture](https://img.shields.io/badge/ARCH-POST_TRANSFORMER-000000.svg?style=for-the-badge&logo=pytorch)]()
-[![System](https://img.shields.io/badge/SYSTEM-ADAPTIVE_META_LEARNING-purple.svg?style=for-the-badge)]()
-[![Status](https://img.shields.io/badge/Status-PRODUCTION_READY-green.svg?style=for-the-badge)]()
+> *"Intelligence is no longer just trained. It is synthesized through awareness."*
 
-> *"Intelligence is not trained. It is grown."*
-
-| **Swarm Intelligence (V3)** | **Neural Telemetry (V4)** |
+| **Autonomous Consciousness** | **Unified Memory** |
 |:---:|:---:|
-| ![Swarm](https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM25uN3JsNXpvejc0a3B3NXBucGU4NGd2eWJlYTBwc2xqdWdpejcyNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/foecxPebqfDx5gxQCU/giphy.gif) <br> *(Placeholder: See tests/drone_swarm_v3.gif)* | ![GlassBox](https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExMnNhczlyMjJob2VzaGU4YTN6amJ1a2k2eXRvNjlpejFxbGg5cGh6bCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/1fM9ePvlVcqZ2/giphy.gif) <br> *(Placeholder: See tests/glass_box.gif)* |
+| ![Consciousness](https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM25uN3JsNXpvejc0a3B3NXBucGU4NGd2eWJlYTBwc2xqdWdpejcyNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/foecxPebqfDx5gxQCU/giphy.gif) <br> *Recursive Workspace V2* | ![Memory](https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExMnNhczlyMjJob2VzaGU4YTN6amJ1a2k2eXRvNjlpejFxbGg5cGh6bCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/1fM9ePvlVcqZ2/giphy.gif) <br> *Holographic Saliency Pooling* |
 
 </div>
 
 ---
 
-## 🏆 VERIFIED CAPABILITIES (V2.0.0)
+## 🏆 SENTIENT CAPABILITIES (V8.0)
 
-### 1. SOLVED: Catastrophic Forgetting
-**Result:** `ANTARA-Full` achieved **+141% Backward Transfer**, completely reversing forgetting compared to Naive (-14%) and EWC (-6%).
-> *See `tests/rigorous_benchmark.py`*
+> [!IMPORTANT]
+> ANTARA V8.0 is a non-destructive cognitive wrapper. It does not replace your model weights; it builds a "conscious" manifold around them.
 
-### 2. SOLVED: Embodied Agency
-**Result:** Successfully controlled a heterogeneous drone swarm (Scout/Heavy) adapting to terrain friction and unit loss in real-time.
-> *See `tests/drone_swarm.py`*
+### 1. Unified Memory (SI + EWC + OGD)
+**Result:** Eliminated catastrophic forgetting in multi-task scenarios by orthogonalizing new learning directions against historical importance manifolds.
+> *See `airborne_antara/memory.py`*
 
-### 3. SOLVED: Deep Observability
-**Result:** Full "Glass Box" telemetry visualization of Entropy, Gradients, and Memory access.
-> *See `tests/glass_box_demo.py`*
+### 2. Recursive Consciousness (System 2)
+**Result:** Enabled slow, deliberative reasoning over complex tasks using the **Recursive Global Workspace**. The model now generates and evaluates thought traces before final execution.
+> *See `airborne_antara/consciousness_v2.py`*
+
+### 3. Perception Gateway (Multi-Modal)
+**Result:** Native support for Vision, Audio, and Text via ViT-style encoders with **Dynamic Positional Interpolation** for variable input scales.
+> *See `airborne_antara/perception.py`*
+
+### 4. Autonomic Health (Neural Shivering)
+**Result:** Self-healing neural substrate. The monitor detects and resets stale activations (ReLU death) and dampens gradient explosions automatically.
+> *See `airborne_antara/core.py`*
 
 ---
 
-## 🏛️ SYSTEM ARCHITECTURE
+## 🧬 THE 4 PILLARS OF SENTIENCE
 
-**Airborne-Antara V2.0.0** is an Adaptive Cognitive Framework designed to augment standard neural networks with self-propagating maintenance capabilities.
+### 1. CONSCIOUSNESS V2 (Global Workspace)
+**[Technical Deep Dive ↗](docs/technical/CONSCIOUSNESS_V2.md)**
 
-It functions as a **Meta-Learning Wrapper** that wraps around a PyTorch `nn.Module`, introducing four parallel cognitive loops that operate during the standard training pass. These loops handle **Predictive Foresight**, **Sparse Routing**, **Relational Memory**, and **Autonomic Repair** without requiring manual intervention from the engineer.
+Implements **System 2 Thinking**. Instead of a single forward pass, the model projects states into a recursive workspace to simulate "thinking about the problem."
+*   **Thought Trace**: Internal hidden state evolution logged as "telemetry" for debugging.
+*   **Recursive Workspace**: Dynamic number of internal reasoning loops based on task entropy.
+
+### 2. HOLOGRAPHIC MEMORY (Unified Handler)
+**[Technical Deep Dive ↗](docs/technical/MEMORY_CONSOLIDATION.md)**
+
+Combines Elastic Weight Consolidation (EWC), Synaptic Intelligence (SI), and Orthogonal Gradient Descent (OGD).
+*   **Saliency Pooling**: Dynamically prioritizes historical parameters to prevent erasure.
+*   **Experience Replay**: Generative replay of "dreams" during idle cycles to consolidate learning.
+
+### 3. MULTI-MODAL PERCEPTION GATEWAY
+**[Technical Deep Dive ↗](docs/technical/SYNTHETIC_INTUITION.md)**
+
+Unified manifold for Vision (Transformers), Audio (Spectral-Temporal), and Text.
+*   **Positional Interpolation**: Scalable attention windows for high-resolution vision.
+*   **Modality Fusion**: Cross-modal attention tokens for joint reasoning.
+
+### 4. AUTONOMIC HEALTH MONITOR
+**[Technical Deep Dive ↗](docs/technical/INTROSPECTION_MATHEMATICS.md)**
+
+A background daemon tracking the "Neural Health" of the host model.
+*   **Neural Shivering**: Injecting controlled stochastic noise to prevent saturation.
+*   **Gradient Centralization**: Modern optimization to stabilize deep manifold learning.
 
 ---
 
-## 🧬 TECHNICAL SPECIFICATIONS
+## 🧪 RESEARCH / EXPERIMENTAL (V9.2)
 
-### 1. ORACLE ENGINE (World Model)
+> [!CAUTION]
+> These features are in preview for the NeurIPS ablation suite and may exhibit instability in production.
 
-**[Deep Dive ↗](docs/technical/SYNTHETIC_INTUITION.md#1-the-world-model) | [Math Proof ↗](docs/math/PREDICTIVE_SURPRISE.md)**
-
-The framework implements a **Joint-Embedding Predictive Architecture (I-JEPA)** to enable self-supervised foresight. Instead of predicting tokens, the model projects the current state $z_t$ forward in time.
-
-*   **Surprise Loss ($\mathcal{L}_{S}$)**: The divergence between the *predicted* future and the *actual* encoded future serves as an intrinsic supervision signal:
-
-$$
-\mathcal{L}_{S} = || P_\phi(z_t, a_t) - E_\theta(x_{t+1}) ||_2^2
-$$
-
-This forces the model to learn causal dynamics and object permanence independent from the primary task labels.
-
-### 2. SCALABLE FRACTAL ROUTING (H-MoE)
-**[Deep Dive ↗](docs/technical/SYNTHETIC_INTUITION.md#2-hierarchical-mixture-of-experts) | [Math Proof ↗](docs/math/FRACTAL_ROUTING.md)**
-
-To decouple model capacity from inference cost, V2.0.0 utilizes a **Bi-Level Hierarchical Mixture of Experts**.
-
-*   **Topology**: A dual-layer router first classifies the input domain (e.g., Audio vs Visual), then routes to fine-grained expert MLPs.
-*   **Capacity**:
-    The active parameter set $\Theta_{active}$ is a sparse subset of total parameters $\Theta_{total}$:
-
-$$
-y = \sum_{i \in \text{TopK}(G(x))} G(x)_i \cdot E_i(x)
-$$
-
-    where $||G(x)||_0 = k \ll N$.
-    This allows for parameter counts reaching the trillions while maintaining $O(1)$ FLOPS during inference.
-
-### 3. RELATIONAL GRAPH MEMORY
-**[Deep Dive ↗](docs/technical/SYNTHETIC_INTUITION.md#3-relational-graph-memory) | [Math Proof ↗](docs/math/SEMANTIC_GRAPH.md)**
-
-Airborne-Antara deprecates linear buffers in favor of a **Dynamic Semantic Graph** $G = \{V, E\}$.
-
-*   **Storage**: Events are stored as nodes $N_i$.
-*   **Retrieval**: Links ($E_{ij}$) are formed based on latent cosine similarity $\phi$:
-
-$$
-\phi(z_i, z_j) = \frac{z_i \cdot z_j}{||z_i|| ||z_j||}
-$$
-
-    When a query $q$ enters the system, activation spreads across edges where $\phi > \tau$, retrieving not just the specific memory but its semantic context.
-
-### 4. NEURAL HEALTH MONITOR (Autonomic Repair)
-**[Deep Dive ↗](docs/technical/SYNTHETIC_INTUITION.md#4-neural-health-monitor) | [Math Proof ↗](docs/math/AUTONOMIC_REPAIR.md)**
-
-A background daemon continuously profiles the statistical distribution of gradients and activations across all layers.
-
-*   **Instability Detection**:
-    We compute the Z-Score of the gradient norm $||\nabla\theta||$ relative to its running history ($\mu_{grad}, \sigma_{grad}$):
-
-$$
-Z_{grad} = \frac{||\nabla\theta|| - \mu_{grad}}{\sigma_{grad}}
-$$
-* **Intervention**:
-  * **Dead Neurons**: If $P(activation=0) > 0.95$, the layer is re-initialized.
-  * **Exploding Gradients**: If $Z_{grad} > 3.0$, the learning rate is dynamically damped via a non-linear decay factor.
+*   **Self-Awareness V2**: Metacognitive engine calculating "Confidence" and "Competence" in real-time.
+*   **I-JEPA World Model**: Predictive foresight for world-dynamic modeling.
+*   **Holographic Compression**: Next-gen memory storage with $O(log N)$ retrieval complexity.
 
 ---
 
 ## ⚡ INTEGRATION PROTOCOL
 
-The architecture is designed for "One-Line Injection". The complexity of the sub-systems is abstracted behind a factory configuration.
+The architecture is designed for "One-Line Cognitive Injection". 
 
 ```python
-from airborne_antara import AdaptiveFramework, AdaptiveFrameworkConfig
+import torch
+from airborne_antara import AdaptiveFramework, PRESETS
 
-# 1. ACQUIRE HOST MODEL
-model = MyNeuralNet() 
+# 1. DEFINE YOUR PYTORCH MODEL (Transformer, CNN, etc.)
+model = MySubstrate() 
 
-# 2. INJECT COGNITIVE LAYER (Production Spec)
-# Initializes World Model, MoE Router, and Graph Memory.
-agent = AdaptiveFramework(model, AdaptiveFrameworkConfig.production())
+# 2. INJECT SENTIENT LAYER
+# Uses the 'production' preset: Consciousness V2 + Unified Memory + MoE
+agent = AdaptiveFramework(model, PRESETS.production())
 
-# 3. EXECUTE TRAINING
-# The agent internally manages the multi-objective loss landscape.
-metrics = agent.train_step(inputs, target_data=targets)
-
-print(f"Surprise: {metrics['surprise']:.4f} | Active Experts: {metrics['active_experts']}")
+# 3. CONSCIOUS TRAINING LOOP
+# The agent handles Mixed Precision (AMP), Memory Consolidation, and Thought Tracing
+for inputs, targets in dataloader:
+    metrics = agent.train_step(inputs, target_data=targets)
+    
+    print(f"Loss: {metrics['loss']:.4f} | Surprise: {metrics['surprise']:.4f}")
+    print(f"Cognitive Mode: {metrics['mode']}") # [NORMAL, NOVELTY, PANIC]
 ```
 
 ---
@@ -186,11 +167,11 @@ python -m airborne_antara --demo
 
 * [**INITIATION** (Getting Started)](docs/guides/GETTING_STARTED.md)
 * [**ARCHITECTURE SPECIFICATIONS**](docs/technical/SYNTHETIC_INTUITION.md)
-* [**API REFERENCE**](docs/API_REFERENCE.md)
+* [**API REFERENCE**](docs/guides/API.md)
 
 ---
 
 <div align="center">
 <b>LEAD ARCHITECT: SURYAANSH PRITHVIJIT SINGH</b><br>
-<i>V2.0.0 Release // 2026</i>
+<i>V8.0 "Sentient" Release // 2026</i>
 </div>
