@@ -615,14 +615,18 @@ class EnhancedConsciousnessCore:
             y_p = y_pred_flat
 
         current_loss = error.mean().item()
-        surprise = self.error_mean - current_loss if hasattr(self, 'error_mean') else 0.0
-        self.error_mean = 0.9 * getattr(self, 'error_mean', current_loss) + 0.1 * current_loss
+        # [V9.3 BUGFIX] Surprise was inverted (mean - current).
+        # Correct: current - mean (Higher error than average = Surprised)
+        # We now use the Z-score for robust statistical surprise.
+        surprise = self._compute_surprise(error)
+        self._update_error_stats(error)
 
         # 2. Global Workspace Integration (Surgical Bypass)
         novelty = 0.0
         if features is not None:
-            if not hasattr(self, 'mean_feature_vector'):
-                self.mean_feature_vector = torch.zeros_like(features.mean(dim=0))
+            # [V9.3 BUGFIX] Avoid cold-start by initializing mean to first batch's features
+            if not hasattr(self, 'mean_feature_vector') or self.mean_feature_vector.abs().sum() < 1e-6:
+                self.mean_feature_vector = features.mean(dim=0).detach()
             
             novelty = torch.norm(features.mean(dim=0) - self.mean_feature_vector).item()
             self.mean_feature_vector = 0.99 * self.mean_feature_vector + 0.01 * features.mean(dim=0)

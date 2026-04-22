@@ -21,6 +21,8 @@ import platform
 import shutil
 from datetime import datetime
 import time
+import math
+from enum import Enum
 import json
 
 # Import Unified Memory, Meta-Controller, and Consciousness
@@ -373,6 +375,13 @@ class PerformanceMonitor:
 
 # ==================== UNIVERSAL FRAMEWORK ====================
 
+class CognitiveRegime(Enum):
+    """[V9.4] The Cognitive State of the model."""
+    SCRATCH = "scratch"         # Random weights, no experience
+    TRANSFER = "transfer"       # Pretrained weights, no experience
+    CONTINUOUS = "continuous"   # Pretrained weights, existing memory
+    GHOST = "ghost"             # Random weights, existing memory (Distillation/Ghost state)
+
 class AdaptiveFramework(nn.Module):
     """
     The Universal Wrapper (V8.0).
@@ -566,6 +575,9 @@ class AdaptiveFramework(nn.Module):
             self.lookahead_step = 0
             self.slow_weights = {n: p.data.clone().detach() for n, p in self.model.named_parameters() if p.requires_grad}
 
+        # [V9.4] Autonomous Regime Awareness
+        self._perform_self_assessment()
+        
         self.logger.info("Airborne-Antara Framework Initialized (V8.0 Sentient Edition)")
 
     def _setup_logging(self):
@@ -584,19 +596,14 @@ class AdaptiveFramework(nn.Module):
         valid_types = (nn.Linear, nn.Conv2d, nn.Conv1d, nn.LSTM, nn.GRU, nn.MultiheadAttention)
         self.layer_map = {}
         
-        # Count layers first
-        idx = 0
-        for _ in self.model.named_modules():
-            idx += 1
-        num_potential = idx
-        
-        # Initialize Bank
+        # 1. Initialize Bank
+        num_potential = sum(1 for _ in self.model.modules())
         try:
             self.adapter_bank = AdapterBank(num_layers=num_potential, device=self.device)
         except Exception:
             self.adapter_bank = None
         
-        # Attach hooks and pre-allocate adapters
+        # 2. Attach hooks and pre-allocate adapters
         idx = 0
         for name, module in self.model.named_modules():
             if isinstance(module, valid_types):
@@ -604,11 +611,7 @@ class AdaptiveFramework(nn.Module):
                 
                 # Pre-allocate adapter if possible
                 if self.adapter_bank:
-                    out_dim = None
-                    if hasattr(module, 'out_features'): out_dim = module.out_features
-                    elif hasattr(module, 'out_channels'): out_dim = module.out_channels
-                    elif hasattr(module, 'hidden_size'): out_dim = module.hidden_size
-                    
+                    out_dim = getattr(module, 'out_features', getattr(module, 'out_channels', getattr(module, 'hidden_size', None)))
                     if out_dim:
                         self.adapter_bank.ensure_index(idx, out_dim=int(out_dim))
                 
@@ -616,12 +619,61 @@ class AdaptiveFramework(nn.Module):
                 idx += 1
         
         self.num_tracked_layers = idx
-        self.telemetry_buffer = torch.zeros(
-            (idx, 4), 
-            device=self.device, 
-            dtype=torch.float32,
-            requires_grad=False
-        )
+        self.telemetry_buffer = torch.zeros((idx, 4), device=self.device, dtype=torch.float32, requires_grad=False)
+
+    def _perform_self_assessment(self):
+        """
+        [V9.4] Autonomous Cognitive Assessment.
+        Detects the current training regime and adjusts meta-parameters.
+        """
+        # 1. Inspect Weight Distribution
+        weights = []
+        for p in self.model.parameters():
+            if p.requires_grad and p.dim() >= 2:
+                weights.append(p.data.view(-1))
+        
+        is_pretrained = False
+        if weights:
+            all_weights = torch.cat(weights)
+            std = all_weights.std().item()
+            mean = all_weights.mean().item()
+            # [V9.4] Refined Heuristic: Scratch init (Kaiming) can have std up to 0.15.
+            # Pretrained models usually have more skewed distributions or shifted means.
+            if abs(mean) > 0.05 or std > 0.2: 
+                is_pretrained = True
+
+        # 2. Inspect Memory State
+        has_memory = False
+        if self.memory:
+            if hasattr(self.memory, 'omega') and self.memory.omega:
+                if any(v.abs().sum() > 0 for v in self.memory.omega.values()):
+                    has_memory = True
+            
+        # 3. Classify Regime
+        if not is_pretrained and not has_memory:
+            self.regime = CognitiveRegime.SCRATCH
+        elif is_pretrained and not has_memory:
+            self.regime = CognitiveRegime.TRANSFER
+        elif is_pretrained and has_memory:
+            self.regime = CognitiveRegime.CONTINUOUS
+        else:
+            self.regime = CognitiveRegime.GHOST
+
+        self.logger.info(f"[SENTIENT] Self-Assessment Complete. Regime: {self.regime.value.upper()}")
+        
+        # 4. Adaptive Policy Injection
+        if self.regime == CognitiveRegime.SCRATCH:
+            self.config.meta_learning_rate *= 1.5
+            self.config.novelty_threshold = 1.0 
+        elif self.regime == CognitiveRegime.TRANSFER:
+            self.config.si_lambda *= 2.0
+            self.config.novelty_threshold = 2.0
+        elif self.regime == CognitiveRegime.CONTINUOUS:
+            self.config.si_lambda *= 5.0
+            self.config.novelty_threshold = 4.0
+        elif self.regime == CognitiveRegime.GHOST:
+            self.config.si_lambda *= 10.0
+            self.config.novelty_threshold = 0.5
 
     def _generate_fast_hook(self, layer_idx, module_type):
         def hook(module, inputs, output):
@@ -740,28 +792,7 @@ class AdaptiveFramework(nn.Module):
             
         return output, log_var, affine_modifiers, moe_indices
 
-    def inference_step(self, *args, **kwargs):
-        """
-        [V8.4] Clean inference path for evaluation.
-        Ensures cognitive modifiers (System 2) don't compound and corrupt deep architectures
-        like ResNet across sequential evaluation batches.
-        """
-        was_training = self.training
-        self.eval()
-        
-        # Clear modifiers to prevent previous batch's thoughts from polluting this batch
-        self.current_modifiers = None
-        
-        with torch.no_grad():
-            output = self.forward(*args, **kwargs)
-            
-        # Clear again so the NEXT batch doesn't get corrupted
-        self.current_modifiers = None
-        
-        if was_training:
-            self.train()
-            
-        return output
+    # Removed duplicate inference_step (V8.4) as it is superseded by V9.1 below.
 
     def clear_cognitive_buffers(self):
         """[V8.3] Explicitly clear all meta-learning and consciousness buffers."""
@@ -873,9 +904,15 @@ class AdaptiveFramework(nn.Module):
             reg_loss = torch.tensor(0.0, device=self.device)
             if self.memory:
                 penalty = self.memory.compute_penalty()
-                # [V9.2] Dynamic Surprise Scaling
+                # [V9.3] Sentient Plasticity Control (Exponential Stability)
+                # High Surprise (Error > Mean) -> Scale ~ 0 (High Plasticity)
+                # Low Surprise (Error < Mean) -> Scale ~ 1 (High Consolidation)
                 if 'surprise' in consciousness_metrics:
-                    scaling_factor = 1.0 / (1.0 + float(consciousness_metrics['surprise']))
+                    s_val = float(consciousness_metrics['surprise'])
+                    # Stable exponential mapping: exp(-s)
+                    # We clamp surprise to [-3, 3] to prevent extreme scaling or vanishing
+                    s_clamped = max(-3.0, min(3.0, s_val))
+                    scaling_factor = math.exp(-s_clamped)
                     penalty *= scaling_factor
                 reg_loss = penalty
 
@@ -1356,6 +1393,9 @@ class AdaptiveFramework(nn.Module):
                         loss=0.0
                     )
 
+        # 6. [Surgical Cleanup] Reset modifiers to prevent cross-batch thought persistence
+        self.current_modifiers = None
+        
         if return_diagnostics:
             return prediction, diagnostics
         else:
