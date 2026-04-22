@@ -934,7 +934,8 @@ class AdaptiveFramework(nn.Module):
         # [V9.0] Periodic Neural Health Check & Autonomic Repair
         if self.health_monitor and self.step_count % self.config.health_check_interval == 0:
             report = self.health_monitor.check_vital_signs()
-            repairs = self.health_monitor.autonomic_repair(report)
+            projector = getattr(self.memory, 'projector', None) if self.memory else None
+            repairs = self.health_monitor.autonomic_repair(report, projector=projector)
             if repairs > 0:
                 self.logger.info(f"[AUTONOMIC] Neural Health Stabilized ({repairs} repairs).")
 

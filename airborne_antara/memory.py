@@ -102,9 +102,13 @@ class OrthogonalProjector:
         
         if grad.dim() == 2: # Linear [Out, In]
             # Project rows of grad (gradients w.r.t weights)
+            # [V9.2 HARDENING] Precision-safe projection to prevent FP16 drift
+            orig_dtype = grad.dtype
+            _grad = grad.float()
+            _M = M.float()
             # g' = g (I - M M^T) = g - g M M^T
-            correction = torch.mm(torch.mm(grad, M), M.T)
-            return grad - correction
+            correction = torch.mm(torch.mm(_grad, _M), _M.T)
+            return (_grad - correction).to(orig_dtype)
             
         elif grad.dim() == 4: # Conv2d [Out, In, k, k]
             # Not supported yet for OGD projection

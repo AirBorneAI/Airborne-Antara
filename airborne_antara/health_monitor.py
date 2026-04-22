@@ -45,7 +45,7 @@ class NeuralHealthMonitor:
                 report[name] = status
         return report
 
-    def autonomic_repair(self, report: Dict[str, str]):
+    def autonomic_repair(self, report: Dict[str, str], projector=None):
         """
         [V9.2] Soft Jitter Rejuvenation.
         Instead of resetting weights, we inject controlled noise to 'wake up' dead neurons.
@@ -59,7 +59,14 @@ class NeuralHealthMonitor:
                 param = dict(self.model.named_parameters())[name]
                 # Scale noise by standard deviation or a small epsilon to avoid destruction
                 noise_scale = 1e-4 # Conservative jitter
-                param.data.add_(torch.randn_like(param.data) * noise_scale)
+                
+                noise = torch.randn_like(param.data) * noise_scale
+                
+                # [V9.2 HARDENING] Project noise onto null-space if projector exists
+                if projector is not None:
+                    noise = projector.project_gradient(name, noise)
+                
+                param.data.add_(noise)
                 
                 repairs_made += 1
                 
