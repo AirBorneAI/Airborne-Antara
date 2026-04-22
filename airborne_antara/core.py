@@ -780,6 +780,13 @@ class AdaptiveFramework(nn.Module):
         self.model.train()
         self.optimizer.zero_grad()
         
+        # [V9.2 BUGFIX] Properly capture param_before for Synaptic Intelligence / Memory Accumulation
+        param_before = {}
+        if self.memory and self.memory.method != 'none':
+            for n, p in self.model.named_parameters():
+                if p.requires_grad:
+                    param_before[n] = p.data.clone().detach()
+        
         # 3. Forward Pass & Loss Calculation
         # [V9.2] Wrap in amp autocast for multi-modal scaling (Big Images / LLM)
         with torch.cuda.amp.autocast(enabled=self.config.use_amp and self.device.type == 'cuda'):

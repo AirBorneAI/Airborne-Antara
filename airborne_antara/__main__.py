@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Version info
-VERSION = "0.0.6"
+VERSION = "0.0.8"
 FRAMEWORK_NAME = "ANTARA"
 TAGLINE = "Adaptive Neural Telemetry & Research Assistant"
 
