@@ -740,6 +740,29 @@ class AdaptiveFramework(nn.Module):
             
         return output, log_var, affine_modifiers, moe_indices
 
+    def inference_step(self, *args, **kwargs):
+        """
+        [V8.4] Clean inference path for evaluation.
+        Ensures cognitive modifiers (System 2) don't compound and corrupt deep architectures
+        like ResNet across sequential evaluation batches.
+        """
+        was_training = self.training
+        self.eval()
+        
+        # Clear modifiers to prevent previous batch's thoughts from polluting this batch
+        self.current_modifiers = None
+        
+        with torch.no_grad():
+            output = self.forward(*args, **kwargs)
+            
+        # Clear again so the NEXT batch doesn't get corrupted
+        self.current_modifiers = None
+        
+        if was_training:
+            self.train()
+            
+        return output
+
     def clear_cognitive_buffers(self):
         """[V8.3] Explicitly clear all meta-learning and consciousness buffers."""
         self.meta_log_probs.clear()
@@ -839,19 +862,12 @@ class AdaptiveFramework(nn.Module):
                 )
                 consciousness_metrics = obs
             
-            # [V9.2 STABILIZATION] Task-Aware Logit Masking
-            # Only compute loss for the classes belonging to the current task if dimensions match (e.g. Cifar100).
-            if task_id is not None and logits.shape[1] >= (task_id + 1) * 10:
-                start_cls = task_id * 10
-                end_cls = (task_id + 1) * 10
-                
-                # Classification Path: Map global target labels to local task indices (0-9)
-                _targets = target_data - start_cls
-                task_logits = logits[:, start_cls:end_cls].view(-1, end_cls - start_cls)
-                loss = F.cross_entropy(task_logits, _targets.view(-1))
-            else:
-                # Regression/Standard Path: Fallback for different architectures (e.g. Regression tasks)
+            # 3. Compute Base Loss
+            # Universal Loss: Route based on target type (Classification vs Regression)
+            if target_data.dtype in [torch.float16, torch.float32, torch.float64] or logits.shape == target_data.shape:
                 loss = F.mse_loss(logits, target_data)
+            else:
+                loss = F.cross_entropy(logits, target_data.view(-1))
             
             # 4. Memory Regularization
             reg_loss = torch.tensor(0.0, device=self.device)
