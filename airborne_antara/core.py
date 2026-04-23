@@ -327,6 +327,14 @@ class PerformanceMonitor:
         self.config = config
         self.device = device
 
+    def inference_step(self, x, task_id=None):
+        """
+        Low-overhead forward pass for evaluation.
+        """
+        self.eval()
+        self._current_task_id = task_id
+        return self.forward(x)
+
     def adapt_weights(self, 
                       current_loss: float, 
                       previous_loss: float,
@@ -797,8 +805,12 @@ class AdaptiveFramework(nn.Module):
             return None
         return hook
 
-    def forward(self, *args, **kwargs):
-        # [V8.0] Perception Gateway Integration
+    def forward(self, x, task_id=None):
+        """
+        Antara Forward Pass (System 1 + System 2 Integration)
+        """
+        # [V9.4] Contextual Task Identity
+        self._current_task_id = task_id
         fused_latent = None
         if self.perception and len(args) == 1 and isinstance(args[0], dict):
             # Dictionary input (Multi-Modal)
@@ -934,10 +946,22 @@ class AdaptiveFramework(nn.Module):
         
         # [V9.4] CAS Protocol: Saturation & Expansion Trigger
         # If backbone is saturated (>95%), we must expand the mind.
-        if self.memory and hasattr(self.memory, 'saturation_level'):
-            if self.memory.saturation_level > 0.95:
-                self.logger.warning("🧠 Mind Space Saturation Detected! Initiating Expansion...")
-                self._expand_cognitive_capacity()
+        # [V9.4] BatchNorm Stabilization (NeurIPS Killshot)
+        # Ensure that anchored modules stay in .eval() mode to prevent 
+        # running_mean/var drift during forward passes of new tasks.
+        if self.memory and hasattr(self.memory, 'sacred_mask'):
+            for m_name, m in self.named_modules():
+                # If any parameter in this module is sacred, we stabilize BN
+                is_sacred_module = False
+                for p_name, p in m.named_parameters(recurse=False):
+                    full_p_name = f"{m_name}.{p_name}" if m_name else p_name
+                    if full_p_name in self.memory.sacred_mask and self.memory.sacred_mask[full_p_name].any():
+                        is_sacred_module = True
+                        break
+                
+                if is_sacred_module and isinstance(m, (torch.nn.modules.batchnorm._BatchNorm)):
+                    m.eval()
+                    m.track_running_stats = False # Absolute Freeze
 
         # [V9.4] Unified Memory Snapshot (Full-Spectrum Coverage)
         # Capture parameters before optimizer.step() for ALL models in the memory system.

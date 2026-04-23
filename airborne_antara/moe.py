@@ -85,6 +85,13 @@ class GatingNetwork(nn.Module):
 
         logits = self.gate(x_flat)
         
+        # [V9.4] Contextual Expert Alignment
+        if task_id is not None:
+            target_expert = task_id % self.gate.out_features
+            mask = torch.ones_like(logits) * -1e9
+            mask[:, target_expert] = 0
+            logits = logits + mask
+        
         # Top-k gating
         # Keep top k values, set others to -inf
         top_k_logits, top_k_indices = torch.topk(logits, self.top_k, dim=1)
@@ -155,17 +162,12 @@ class SparseMoE(nn.Module):
     def get_aux_loss(self):
         return self.gate.get_aux_loss()
 
-    def forward(self, x):
+    def forward(self, x, task_id=None):
         # x: [batch_size, ...]
         
         # 1. Gating
-        # We need a feature vector for gating. 
-        # If x is image [B, C, H, W], we flatten.
-        # If x is sequence [B, S, D], we might gate per token or per sequence.
-        # For simplicity V7.0: Gate per sample (using flattened input).
-        
         # [V9.0] Let GatingNetwork handle Pooling/Flattening
-        weights, indices = self.gate(x) # weights: [B, k], indices: [B, k]
+        weights, indices = self.gate(x, task_id=task_id) # weights: [B, k], indices: [B, k]
         
         # [V9.0] Track usage
         with torch.no_grad():
@@ -254,7 +256,7 @@ class HierarchicalMoE(nn.Module):
         for domain in self.domains:
             domain.expert_usage.zero_()
     
-    def forward(self, x):
+    def forward(self, x, task_id=None):
         """
         Hierarchical Routing:
         1. Select Domain Cluster (Level 1)
@@ -262,7 +264,7 @@ class HierarchicalMoE(nn.Module):
         """
         # [V9.0] Let GatingNetwork handle Pooling/Flattening
         # 1. Level 1 Gating
-        domain_weights, domain_indices = self.domain_router(x) # [B, 1]
+        domain_weights, domain_indices = self.domain_router(x, task_id=task_id) # [B, 1]
         
         batch_size = x.size(0)
         final_output = None
