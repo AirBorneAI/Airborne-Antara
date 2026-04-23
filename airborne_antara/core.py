@@ -444,10 +444,20 @@ class AdaptiveFramework(nn.Module):
             self._last_z_pred = None
             self.logger.info("[SENSORY] World Model (I-JEPA) Enabled")
 
+        # [V8.0] Introspection Engine (System 2 Policy)
+        self.introspection_engine = IntrospectionEngine(
+            input_dim=config.telemetry_dim, 
+            hidden_dim=config.model_dim // 4
+        ).to(self.device)
+
         # 5. Memory System (Unified Handler V9.4)
         tracked_models = [self.model]
         if self.world_model:
             tracked_models.append(self.world_model)
+        if self.introspection_engine:
+            tracked_models.append(self.introspection_engine)
+        if self.perception:
+            tracked_models.append(self.perception)
 
         self.memory = UnifiedMemoryHandler(
             models=tracked_models,
@@ -497,12 +507,6 @@ class AdaptiveFramework(nn.Module):
             self.logger.info("[CONSCIOUSNESS] Self-Awareness Module Active")
         else:
             self.consciousness = None
-        
-        # [V8.0] Introspection Engine (System 2 Policy)
-        self.introspection_engine = IntrospectionEngine(
-            input_dim=config.telemetry_dim, 
-            hidden_dim=config.model_dim // 4
-        ).to(self.device)
         
         self.current_modifiers = None
         self.meta_log_probs = []
@@ -935,13 +939,11 @@ class AdaptiveFramework(nn.Module):
                 self.logger.warning("🧠 Mind Space Saturation Detected! Initiating Expansion...")
                 self._expand_cognitive_capacity()
 
-        # [V9.2 BUGFIX] Properly capture param_before for Synaptic Intelligence / Memory Accumulation
-        # [V9.4 OPTIMIZATION] Force to CPU to save GPU VRAM
+        # [V9.4] Unified Memory Snapshot (Full-Spectrum Coverage)
+        # Capture parameters before optimizer.step() for ALL models in the memory system.
         param_before = {}
         if self.memory and self.memory.method != 'none':
-            for n, p in self.model.named_parameters():
-                if p.requires_grad:
-                    param_before[n] = p.data.clone().detach().cpu()
+            param_before = self.memory.before_step_snapshot()
         
         # 3. Forward Pass & Loss Calculation
         # [V9.2] Use modern torch.amp.autocast
