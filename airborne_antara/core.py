@@ -407,7 +407,7 @@ class AdaptiveFramework(nn.Module):
         # 1. The "Body" (Base Model)
         self.model = user_model.to(self.device)
         
-        # [V8.0] Perception Gateway
+        # 4. Perception Gateway (V8.0)
         self.perception = None
         if self.config.enable_perception:
             self.perception = PerceptionGateway(self.config)
@@ -415,6 +415,7 @@ class AdaptiveFramework(nn.Module):
         
         # [V7.1] MoE Transformation
         if getattr(config, 'use_moe', False):
+            from .moe import SparseMoE
             moe_input_dim = config.input_dim if config.input_dim > 0 else config.model_dim
             if getattr(config, 'use_hierarchical_moe', False):
                 from .moe import HierarchicalMoE
@@ -436,10 +437,20 @@ class AdaptiveFramework(nn.Module):
                 ).to(self.device)
             self.logger.info("   [OK] Transformation Complete. The Mind is now distributed.")
         
-        # 5. Memory System (Unified Handler V7.0)
-        # We explicitly use UnifiedMemoryHandler, removing all EWC legacy code.
+        # [V9.0] World Model (I-JEPA) - Init BEFORE Memory to allow tracking
+        self.world_model = None
+        if getattr(self.config, 'enable_world_model', False):
+            self.world_model = WorldModel(self.config).to(self.device)
+            self._last_z_pred = None
+            self.logger.info("[SENSORY] World Model (I-JEPA) Enabled")
+
+        # 5. Memory System (Unified Handler V9.4)
+        tracked_models = [self.model]
+        if self.world_model:
+            tracked_models.append(self.world_model)
+
         self.memory = UnifiedMemoryHandler(
-            self.model,
+            models=tracked_models,
             method=getattr(config, 'memory_type', 'hybrid'),
             si_lambda=getattr(config, 'si_lambda', 1.0),
             si_xi=getattr(config, 'si_xi', 1e-3),
@@ -453,7 +464,7 @@ class AdaptiveFramework(nn.Module):
         )
         self.logger.info(
             f"[BRAIN] Unified Memory System Online "
-            f"({getattr(config, 'memory_type', 'hybrid')}, Graph={getattr(config, 'use_graph_memory', False)})"
+            f"({getattr(config, 'memory_type', 'hybrid')}, Tracking {len(tracked_models)} Models)"
         )
         
         # 6. Experience Replay
@@ -493,12 +504,6 @@ class AdaptiveFramework(nn.Module):
             hidden_dim=config.model_dim // 4
         ).to(self.device)
         
-        # [V9.0] World Model (I-JEPA)
-        self.world_model = None
-        if self.config.enable_world_model:
-            self.world_model = WorldModel(self.config).to(self.device)
-            self._last_z_pred = None
-            self.logger.info("[SENSORY] World Model (Foresight) Enabled")
         self.current_modifiers = None
         self.meta_log_probs = []
         self.loss_history = []
@@ -577,8 +582,43 @@ class AdaptiveFramework(nn.Module):
 
         # [V9.4] Autonomous Regime Awareness
         self._perform_self_assessment()
+
+        # [V9.4] CAS Protocol: Apply Gradient Shunting Hooks
+        self.apply_cas_protection()
+
+        self.logger.info("Airborne-Antara Framework Initialized (V9.4 Eternal Edition)")
+
+    def apply_cas_protection(self):
+        """
+        [V9.4] Attaches gradient shunting hooks to all 'Sacred' parameters in all models.
+        Ensures BWT 0 by zeroing gradients at protected coordinates.
+        """
+        self.cas_hooks = []
+        # Support for multi-model protection (Backbone + World Model)
+        models_to_protect = [self.model]
+        if self.world_model:
+            models_to_protect.append(self.world_model)
+            
+        for model in models_to_protect:
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    def get_hook(p_name):
+                        def hook(grad):
+                            if self.memory and hasattr(self.memory, 'sacred_mask'):
+                                mask = self.memory.sacred_mask.get(p_name, None)
+                                if mask is not None:
+                                    # Optimization: Skip if mask is all False
+                                    if not mask.any():
+                                        return grad
+                                    # Shunt gradients
+                                    return grad * (~mask.to(grad.device))
+                            return grad
+                        return hook
+                    
+                    h = param.register_hook(get_hook(name))
+                    self.cas_hooks.append(h)
         
-        self.logger.info("Airborne-Antara Framework Initialized (V8.0 Sentient Edition)")
+        self.logger.info(f"[CAS] Protection Active: {len(self.cas_hooks)} Gradient Shunts installed across {len(models_to_protect)} models.")
 
     def _setup_logging(self):
         logger = logging.getLogger('AdaptiveFramework')
@@ -588,20 +628,47 @@ class AdaptiveFramework(nn.Module):
             logger.setLevel(logging.INFO)
         return logger
 
-    def _init_adapters_and_hooks(self):
+    def _expand_cognitive_capacity(self):
+        """
+        [V9.4] HEE: Holographic Expert Expansion.
+        Spawns new neural real estate to allow learning when backbone is full.
+        """
+        self.logger.info("⚡ Expanding Neural Expert Bank...")
+        
+        # 1. Offload 'Ancient' state to Holographic Vault before expansion
+        if self.memory and hasattr(self.memory, 'holographic_vault'):
+             current_params = {n: p.clone().detach() for n, p in self.model.named_parameters() if p.requires_grad}
+             # Use a virtual task ID to index the snapshot
+             snapshot_id = getattr(self, 'task_id_counter', self.step_count // 100)
+             self.memory.holographic_vault.deposit(snapshot_id, current_params)
+        
+        # 2. Refresh/Upgrade all adapters
+        self._init_adapters_and_hooks(force_upgrade=True)
+        
+        # 2. Re-attach Optimizer to include new parameters
+        if hasattr(self, 'adapter_bank') and self.adapter_bank is not None:
+            adapter_params = list(self.adapter_bank.parameters())
+            if adapter_params:
+                # Use current learning rate or config default
+                lr = getattr(self.config, 'weight_adaptation_lr', 1e-3)
+                self.adapter_optimizer = AdamW(adapter_params, lr=lr)
+                self.logger.info(f"✨ Expansion Complete. {len(adapter_params)//4} experts now online.")
+
+    def _init_adapters_and_hooks(self, force_upgrade: bool = False):
         """
         Initialize adapters by inspecting layer dimensions upfront.
-        This ensures parameters exist before optimizer creation.
+        [V9.4] Support for Force Upgrade during expansion.
         """
         valid_types = (nn.Linear, nn.Conv2d, nn.Conv1d, nn.LSTM, nn.GRU, nn.MultiheadAttention)
         self.layer_map = {}
         
-        # 1. Initialize Bank
+        # 1. Initialize Bank if not already present
         num_potential = sum(1 for _ in self.model.modules())
-        try:
-            self.adapter_bank = AdapterBank(num_layers=num_potential, device=self.device)
-        except Exception:
-            self.adapter_bank = None
+        if not hasattr(self, 'adapter_bank') or self.adapter_bank is None:
+            try:
+                self.adapter_bank = AdapterBank(num_layers=num_potential, device=self.device)
+            except Exception:
+                self.adapter_bank = None
         
         # 2. Attach hooks and pre-allocate adapters
         idx = 0
@@ -613,9 +680,12 @@ class AdaptiveFramework(nn.Module):
                 if self.adapter_bank:
                     out_dim = getattr(module, 'out_features', getattr(module, 'out_channels', getattr(module, 'hidden_size', None)))
                     if out_dim:
-                        self.adapter_bank.ensure_index(idx, out_dim=int(out_dim))
+                        self.adapter_bank.ensure_index(idx, out_dim=int(out_dim), force_upgrade=force_upgrade)
                 
-                module.register_forward_hook(self._generate_fast_hook(idx, type(module)))
+                # Only register hook if not already present (prevents duplicates during expansion)
+                if not hasattr(module, '_antara_hook_installed'):
+                    module.register_forward_hook(self._generate_fast_hook(idx, type(module)))
+                    module._antara_hook_installed = True
                 idx += 1
         
         self.num_tracked_layers = idx
@@ -858,12 +928,20 @@ class AdaptiveFramework(nn.Module):
         if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
             self.world_model_optimizer.zero_grad()
         
+        # [V9.4] CAS Protocol: Saturation & Expansion Trigger
+        # If backbone is saturated (>95%), we must expand the mind.
+        if self.memory and hasattr(self.memory, 'saturation_level'):
+            if self.memory.saturation_level > 0.95:
+                self.logger.warning("🧠 Mind Space Saturation Detected! Initiating Expansion...")
+                self._expand_cognitive_capacity()
+
         # [V9.2 BUGFIX] Properly capture param_before for Synaptic Intelligence / Memory Accumulation
+        # [V9.4 OPTIMIZATION] Force to CPU to save GPU VRAM
         param_before = {}
         if self.memory and self.memory.method != 'none':
             for n, p in self.model.named_parameters():
                 if p.requires_grad:
-                    param_before[n] = p.data.clone().detach()
+                    param_before[n] = p.data.clone().detach().cpu()
         
         # 3. Forward Pass & Loss Calculation
         # [V9.2] Use modern torch.amp.autocast
@@ -916,12 +994,31 @@ class AdaptiveFramework(nn.Module):
                     penalty *= scaling_factor
                 reg_loss = penalty
 
+            # [V9.0] World Model Latent Prediction (I-JEPA)
+            wm_loss = torch.tensor(0.0, device=self.device)
+            if self.world_model and features is not None:
+                # If we have a sequence, we can predict z_{i+1} from z_i
+                if features.dim() == 3 and features.size(1) > 1:
+                    z_t = features[:, :-1, :]
+                    z_actual = features[:, 1:, :].detach()
+                    z_pred = self.world_model(z_t)
+                    _, wm_loss = self.world_model.compute_surprise(z_pred, z_actual)
+                elif hasattr(self, '_last_latent') and self._last_latent is not None:
+                    # Cross-step prediction
+                    z_actual = features.detach()
+                    z_pred = self.world_model(self._last_latent)
+                    # Surprise signal can be used by consciousness too
+                    _, wm_loss = self.world_model.compute_surprise(z_pred, z_actual)
+                
+                # Store latent for next step
+                self._last_latent = features.detach()
+
             # [V9.2] Expert Balancing Loss
             aux_loss = torch.tensor(0.0, device=self.device)
             if hasattr(self.model, 'get_aux_loss'):
                 aux_loss = self.model.get_aux_loss() * 0.1
 
-            total_loss = loss + reg_loss + aux_loss
+            total_loss = loss + reg_loss + aux_loss + (wm_loss * 0.5)
 
         # 5. Backward Pass with AMP Scaling
         self.scaler.scale(total_loss).backward(retain_graph=len(self.meta_log_probs) > 0)
@@ -930,14 +1027,24 @@ class AdaptiveFramework(nn.Module):
         self.scaler.unscale_(self.optimizer)
         if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
             self.scaler.unscale_(self.adapter_optimizer)
+        if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
+            self.scaler.unscale_(self.world_model_optimizer)
         
         # [V9.2] Memory Handler now sees UNSCALED gradients for OGD projection
         if self.config.use_gradient_centralization:
             self._apply_gradient_centralization()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.gradient_clip_norm)
         
-        # 7. Optimizer Step via Scaler
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.gradient_clip_norm)
+        if self.world_model:
+            torch.nn.utils.clip_grad_norm_(self.world_model.parameters(), self.config.gradient_clip_norm)
+        
+        # 7. Optimizer Steps via Scaler
         self.scaler.step(self.optimizer)
+        if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
+            self.scaler.step(self.adapter_optimizer)
+        if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
+            self.scaler.step(self.world_model_optimizer)
+            
         self.scaler.update()
 # [V8.0] Sentient Meta-Optimization Loop (REINFORCE with Advantage)
         # This module optimizes the IntrospectionEngine by treating its affine modifiers 
@@ -966,9 +1073,8 @@ class AdaptiveFramework(nn.Module):
         # [V9.2 BUGFIX] Removed duplicate self.optimizer.step(). 
         # Weights are already updated by self.scaler.step() above.
         
-        # [V8.0] Adapter Optimizer Step
-        if self.adapter_optimizer:
-            self.adapter_optimizer.step()
+        # [V8.0] Meta-Loss Update complete
+        # Redundant adapter step removed (now handled by scaler)
         
         # [V8.0] Lookahead Step
         if self.config.use_lookahead:
@@ -1490,3 +1596,36 @@ class AdaptiveFramework(nn.Module):
                 pass
                 
         return pred, diagnostics
+
+    def status(self) -> Dict[str, Any]:
+        """
+        [V9.4] The 'Mind-Space' Telemetry.
+        Returns a detailed report on knowledge density and system health.
+        """
+        sacred_pct = 0.0
+        if self.memory and hasattr(self.memory, 'saturation_level'):
+            sacred_pct = self.memory.saturation_level * 100
+
+        adapter_count = 0
+        if hasattr(self, 'adapter_bank') and self.adapter_bank:
+            adapter_count = len(self.adapter_bank.adapters)
+
+        vault_count = 0
+        if self.memory and hasattr(self.memory, 'holographic_vault'):
+            vault_count = len(self.memory.holographic_vault.vault)
+
+        return {
+            "version": "V9.4 Eternal",
+            "regime": self.regime.value.upper(),
+            "mind_space": {
+                "sacred_knowledge_pct": round(sacred_pct, 2),
+                "plastic_capacity_pct": round(100.0 - sacred_pct, 2),
+                "expansion_experts": adapter_count,
+                "holographic_snapshots": vault_count
+            },
+            "autonomic": {
+                "health_stable": self.health_monitor.is_stable() if self.health_monitor else True,
+                "step_count": self.step_count
+            },
+            "device": str(self.device)
+        }

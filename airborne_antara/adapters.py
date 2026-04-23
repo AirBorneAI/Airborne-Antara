@@ -23,10 +23,11 @@ class AdapterBank:
         for i in range(num_layers):
             self.adapters[i] = {'type': 'empty'}
 
-    def ensure_index(self, idx: int, out_dim: int = None):
+    def ensure_index(self, idx: int, out_dim: int = None, force_upgrade: bool = False):
         """
         Ensure adapter exists for idx. 
         Promotes 'empty' or 'film' adapters to 'bneck' if out_dim is sufficiently large.
+        [V9.4] force_upgrade: Triggered during Mind-Space expansion.
         """
         if idx not in self.adapters:
             self.adapters[idx] = {'type': 'empty'}
@@ -48,7 +49,11 @@ class AdapterBank:
 
         # Case 2: Dimension known & large -> Use Bottleneck Adapter (High Capacity)
         # We upgrade if it's currently empty OR film (feature upgrade)
-        if current_type in ['empty', 'film']:
+        # [V9.4] If force_upgrade is True, we promote even existing film adapters.
+        if current_type in ['empty', 'film'] or force_upgrade:
+            # Skip if it's already a bottleneck and we aren't resizing
+            if current_type == 'bneck' and not force_upgrade: return
+            
             r = max(4, min(64, out_dim // 8)) # Bottleneck ratio
             
             # Kaiming Init for Down projection (Information extraction)

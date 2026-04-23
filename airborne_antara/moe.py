@@ -15,6 +15,45 @@ class ExpertBlock(nn.Module):
     def forward(self, x):
         return self.model(x)
 
+class AdaptiveExpertBlock(nn.Module):
+    """
+    [V9.4] Memory-Efficient Expert.
+    Instead of copying the base model, it uses a shared backbone
+    with lightweight Task-Adaptive Adapters (FiLM/LoRA).
+    Ensures 8GB GPU stability with many experts.
+    """
+    def __init__(self, shared_backbone, input_dim, adapter_dim=32):
+        super().__init__()
+        self.backbone = shared_backbone # Reference to shared weights
+        # Expert-specific modulation
+        self.modulation = nn.Sequential(
+            nn.Linear(input_dim, adapter_dim),
+            nn.ReLU(),
+            nn.Linear(adapter_dim, input_dim * 2) # For Scale and Shift
+        )
+    
+    def forward(self, x):
+        # 1. Generate local modulation from input
+        # Pool seq if needed
+        if x.dim() == 3: x_flat = x.mean(dim=1)
+        else: x_flat = x.view(x.size(0), -1)
+        
+        # Verify alignment
+        if x_flat.size(-1) != self.modulation[0].in_features:
+            x_flat = F.adaptive_avg_pool1d(x_flat.unsqueeze(1), self.modulation[0].in_features).squeeze(1)
+
+        mod = self.modulation(x_flat)
+        scale, shift = torch.chunk(mod, 2, dim=-1)
+        
+        # 2. Reshape for broadcasting
+        view_shape = [x.size(0)] + [1] * (x.dim() - 1)
+        scale = scale.view(*view_shape)
+        shift = shift.view(*view_shape)
+        
+        # 3. Apply shared backbone with local modulation
+        # This is essentially a dynamic FiLM-Expert
+        return self.backbone(x * (1 + scale) + shift)
+
 class GatingNetwork(nn.Module):
     """
     Router that decides which experts to activate.
@@ -91,11 +130,19 @@ class SparseMoE(nn.Module):
         self.num_experts = num_experts
         self.top_k = top_k
         
-        # Create experts by cloning the base model
-        # We deepcopy to ensure independent weights
-        self.experts = nn.ModuleList([
-            ExpertBlock(copy.deepcopy(base_model)) for _ in range(num_experts)
-        ])
+        # [V9.4] Adaptive Mode: Share weights to save VRAM
+        self.use_adaptive = getattr(base_model, '_moe_adaptive', False)
+        
+        if self.use_adaptive:
+            # Shared backbone experts
+            self.experts = nn.ModuleList([
+                AdaptiveExpertBlock(base_model, input_dim) for _ in range(num_experts)
+            ])
+        else:
+            # Full model experts (Heavy)
+            self.experts = nn.ModuleList([
+                ExpertBlock(copy.deepcopy(base_model)) for _ in range(num_experts)
+            ])
         
         self.gate = GatingNetwork(input_dim, num_experts, top_k)
         

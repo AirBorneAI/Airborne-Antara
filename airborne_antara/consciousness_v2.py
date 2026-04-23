@@ -639,9 +639,9 @@ class EnhancedConsciousnessCore:
 
                     if features.size(-1) == self.feature_dim:
                         _, trace = self.global_workspace(features, thinking_steps=thinking_steps)
-                        self.current_thought_trace = trace
                         # [OPTIMIZATION] Move trace to CPU to prevent VRAM leak
                         cpu_trace = [t.detach().cpu() for t in trace]
+                        self.current_thought_trace = cpu_trace
                         self.thought_stream.append(cpu_trace)
                 except Exception:
                     pass
