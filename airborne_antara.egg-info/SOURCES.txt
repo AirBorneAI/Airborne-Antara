@@ -7,14 +7,12 @@ airborne_antara/adapters.py
 airborne_antara/consciousness_v2.py
 airborne_antara/core.py
 airborne_antara/health_monitor.py
-airborne_antara/integration_guide.py
 airborne_antara/memory.py
 airborne_antara/meta_controller.py
 airborne_antara/moe.py
 airborne_antara/perception.py
 airborne_antara/presets.py
 airborne_antara/production.py
-airborne_antara/self_awareness_v2.py
 airborne_antara/validation.py
 airborne_antara/world_model.py
 airborne_antara.egg-info/PKG-INFO
