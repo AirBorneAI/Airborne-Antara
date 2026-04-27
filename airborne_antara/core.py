@@ -802,8 +802,8 @@ class AdaptiveFramework(nn.Module):
         """
         Antara Forward Pass (System 1 + System 2 Integration)
         """
-        # [V9.4] Contextual Task Identity
-        task_id = kwargs.pop('task_id', None)
+        # [V12] Fix: Use get instead of pop to ensure task_id reaches MoE backbone
+        task_id = kwargs.get('task_id', None)
         self._current_task_id = task_id
         fused_latent = None
         if self.perception and len(args) == 1 and isinstance(args[0], dict):
@@ -966,8 +966,8 @@ class AdaptiveFramework(nn.Module):
         # 3. Forward Pass & Loss Calculation
         # [V9.2] Use modern torch.amp.autocast
         with torch.amp.autocast('cuda', enabled=self.config.use_amp and self.device.type == 'cuda'):
-            # Captured MoE routing for diversity metrics
-            output, log_var, modifiers, moe_indices = self.forward(*model_inputs)
+            # [V12] Fix: Pass task_id to forward for expert routing
+            output, log_var, modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id)
             
             # Unpack standard model outputs
             if isinstance(output, tuple):
