@@ -327,13 +327,6 @@ class PerformanceMonitor:
         self.config = config
         self.device = device
 
-    def inference_step(self, x, task_id=None):
-        """
-        Low-overhead forward pass for evaluation.
-        """
-        self.eval()
-        self._current_task_id = task_id
-        return self.forward(x)
 
     def adapt_weights(self, 
                       current_loss: float, 
@@ -805,11 +798,12 @@ class AdaptiveFramework(nn.Module):
             return None
         return hook
 
-    def forward(self, x, task_id=None):
+    def forward(self, *args, **kwargs):
         """
         Antara Forward Pass (System 1 + System 2 Integration)
         """
         # [V9.4] Contextual Task Identity
+        task_id = kwargs.pop('task_id', None)
         self._current_task_id = task_id
         fused_latent = None
         if self.perception and len(args) == 1 and isinstance(args[0], dict):
@@ -1426,7 +1420,12 @@ class AdaptiveFramework(nn.Module):
             
         self.logger.info(f"Checkpoint loaded from {path}")
 
-    def inference_step(self, *model_inputs, return_diagnostics: bool = False, remember: bool = False):
+    def inference_step(self, *model_inputs, task_id=None, return_diagnostics: bool = False, remember: bool = False):
+        """
+        Low-overhead forward pass for evaluation.
+        """
+        self.eval()
+        self._current_task_id = task_id
         """
         [V9.1] Production Inference Step.
         Runs the cognitive loop (Perception -> World Model -> Cortex -> Consciousness)
