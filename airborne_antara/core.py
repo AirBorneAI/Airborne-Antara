@@ -789,14 +789,16 @@ class AdaptiveFramework(nn.Module):
 
                     # [V8.0] Apply Sentient Affine Modifiers (System 2)
                     if self.current_modifiers is not None:
-                        # self.current_modifiers: [B, 2] or [2]
+                        # [V17] Detach modifiers during internal/eval passes to prevent graph leaks
                         mods = self.current_modifiers
+                        if self._internal_consolidation_mode or not self.training:
+                            mods = mods.detach()
+                            
                         if mods.dim() == 1:
                             scale = 1.0 + mods[0]
                             shift = mods[1]
                         else:
                             # Batch of modifiers: [B, 2]
-                            # Detect if inp is batch-first
                             b_size = inp.size(0)
                             if mods.size(0) == b_size:
                                 s = mods[:, 0]
@@ -806,6 +808,11 @@ class AdaptiveFramework(nn.Module):
                                     f = f.unsqueeze(-1)
                                 scale = 1.0 + s
                                 shift = f
+                            else:
+                                # Fallback to scalar mean
+                                m = mods.mean(dim=0)
+                                scale = 1.0 + m[0]
+                                shift = m[1]
                         inp = inp * scale + shift
                     
                     if inp is not output:
@@ -1100,6 +1107,9 @@ class AdaptiveFramework(nn.Module):
             self.scaler.step(self.world_model_optimizer)
             
         self.scaler.update()
+        
+        # [V17] Post-Optimizer Sacred Restoration (combats weight decay drift)
+        self._apply_sacred_restoration()
 # [V8.0] Sentient Meta-Optimization Loop (REINFORCE with Advantage)
         # This module optimizes the IntrospectionEngine by treating its affine modifiers 
         # as a policy that aims to maximize immediate loss reduction.
@@ -1122,7 +1132,8 @@ class AdaptiveFramework(nn.Module):
                 
             self._last_loss_val = current_loss_val
             self.meta_log_probs.clear()
-            self.current_modifiers = None # Reset for next forward
+            self.current_modifiers = None 
+            self._apply_sacred_restoration()
 
         # [V9.2 BUGFIX] Removed duplicate self.optimizer.step(). 
         # Weights are already updated by self.scaler.step() above.
@@ -1369,10 +1380,11 @@ class AdaptiveFramework(nn.Module):
             if hasattr(self.model, 'get_aux_loss'):
                 aux_loss = self.model.get_aux_loss() * 0.1
 
-            total_loss = loss + reg_loss + aux_loss
             total_loss.backward()
-            
             self.optimizer.step()
+            
+            # [V17] Restore sacred weights after dreaming step
+            self._apply_sacred_restoration()
 
     def learn_from_episodic_memory(self, current_surprise: float, current_loss: float, current_features: Optional[torch.Tensor] = None, k: int = 5):
         """
@@ -1706,3 +1718,25 @@ class AdaptiveFramework(nn.Module):
             },
             "device": str(self.device)
         }
+
+    def _apply_sacred_restoration(self):
+        """
+        [V17] UNYIELDING SOUL: Direct parameter restoration for sacred weights.
+        Combats optimizer drift (weight decay) that bypasses gradient hooks.
+        """
+        if not self.memory or not hasattr(self.memory, "sacred_mask") or not self.memory.sacred_mask:
+            return
+            
+        with torch.no_grad():
+            for name, param in self.model.named_parameters():
+                mask = self.memory.sacred_mask.get(name, None)
+                if mask is not None and mask.any():
+                    # Framework anchor is typically on CPU
+                    anchor = self.memory.anchor.get(name, None)
+                    if anchor is not None:
+                        mask = mask.to(param.device)
+                        anchor = anchor.to(param.device)
+                        # Atomic restoration: force p[mask] = anchor[mask]
+                        if anchor.shape != param.shape:
+                             anchor = anchor.view_as(param)
+                        param.data.copy_(torch.where(mask, anchor, param.data))
