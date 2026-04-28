@@ -75,6 +75,13 @@ class NeuralHealthMonitor:
                 noise = torch.randn_like(param.data) * noise_scale
                 if projector is not None:
                     noise = projector.project_gradient(name, noise)
+
+                # [V17] UNYIELDING SOUL: Apply Sacred Mask protection to repairs
+                memory = getattr(self.model, 'memory', None)
+                if memory and hasattr(memory, 'sacred_mask'):
+                    mask = memory.sacred_mask.get(name, None)
+                    if mask is not None and mask.any():
+                        noise = noise * (~mask.to(noise.device))
                 
                 param.data.add_(noise)
                 repairs_made += 1

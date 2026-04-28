@@ -200,6 +200,7 @@ class PerformanceSnapshot:
     loss: float
     timestamp: float
     episode: int
+    task_id: int = -1  # [V17] Track which task produced this experience
     
     def to_device(self, device):
         def _to_device(x):
@@ -225,7 +226,7 @@ class FeedbackBuffer:
         self.buffer: List[PerformanceSnapshot] = []
         self.total_seen = 0
         
-    def add(self, input_args: tuple, input_kwargs: dict, output: torch.Tensor, target: torch.Tensor, reward: float, loss: float):
+    def add(self, input_args: tuple, input_kwargs: dict, output: torch.Tensor, target: torch.Tensor, reward: float, loss: float, task_id: int = -1):
         # Move to CPU immediately to save VRAM
         def _to_cpu(x):
             if isinstance(x, torch.Tensor):
@@ -247,7 +248,8 @@ class FeedbackBuffer:
             reward=reward,
             loss=loss,
             timestamp=datetime.now().timestamp(),
-            episode=self.total_seen
+            episode=self.total_seen,
+            task_id=task_id
         )
         if len(self.buffer) < self.capacity:
             self.buffer.append(snapshot)
@@ -365,11 +367,26 @@ class PerformanceMonitor:
                     scale_factor = raw_scale * self.config.weight_adaptation_lr * param_importance
                     shift_factor = raw_shift * self.config.weight_adaptation_lr * param_importance
                     
+                    # [V17] UNYIELDING SOUL: Apply Sacred Mask protection to direct adaptation
+                    memory = getattr(self.model, 'memory', None)
+                    mask = None
+                    if memory and hasattr(memory, 'sacred_mask'):
+                        mask = memory.sacred_mask.get(name, None)
+                        if mask is not None:
+                            mask = mask.to(param.device)
+
                     if param.ndim == 1:
-                        param.mul_(1.0 + scale_factor)
-                        param.add_(shift_factor)
+                        if mask is not None:
+                            param.data.mul_(1.0 + scale_factor * (~mask))
+                            param.data.add_(shift_factor * (~mask))
+                        else:
+                            param.mul_(1.0 + scale_factor)
+                            param.add_(shift_factor)
                     elif param.ndim >= 2:
-                        param.mul_(1.0 + scale_factor)
+                        if mask is not None:
+                            param.data.mul_(1.0 + scale_factor * (~mask))
+                        else:
+                            param.mul_(1.0 + scale_factor)
 
         return abs(raw_scale) + abs(raw_shift)
 
@@ -907,7 +924,7 @@ class AdaptiveFramework(nn.Module):
                 p.grad.data.add_(-p.grad.data.mean(dim=tuple(range(1, p.dim())), keepdim=True))
 
     def _lookahead_step(self):
-        """[V8.0] Lookahead Optimizer Step."""
+        """[V8.0] Lookahead Optimizer Step — V17 Sacred-Mask-Aware."""
         if not self.config.use_lookahead: return
         
         self.lookahead_step += 1
@@ -916,10 +933,16 @@ class AdaptiveFramework(nn.Module):
                 if p.requires_grad and n in self.slow_weights:
                     # slow = slow + alpha * (fast - slow)
                     fast = p.data
-                    slow = self.slow_weights[n]
+                    slow = self.slow_weights[n].to(p.device)
                     new_slow = slow + self.lookahead_alpha * (fast - slow)
-                    self.slow_weights[n] = new_slow
-                    p.data.copy_(new_slow)
+                    self.slow_weights[n] = new_slow.clone().detach().cpu()
+                    # [V17] Respect Sacred Mask: never overwrite protected coordinates
+                    mask = self.memory.sacred_mask.get(n) if self.memory else None
+                    if mask is not None and mask.any():
+                        mask = mask.to(p.device)
+                        p.data.copy_(torch.where(mask, fast, new_slow))
+                    else:
+                        p.data.copy_(new_slow)
 
     def train_step(self, *model_inputs, target_data, task_id: int = 0, enable_dream: bool = True, meta_step: bool = True, record_stats: bool = True):
         """
@@ -996,7 +1019,18 @@ class AdaptiveFramework(nn.Module):
             if target_data.dtype in [torch.float16, torch.float32, torch.float64] or logits.shape == target_data.shape:
                 loss = F.mse_loss(logits, target_data)
             else:
-                loss = F.cross_entropy(logits, target_data.view(-1))
+                # [V17] TASK-SCOPED CLASSIFICATION: Only compute loss on current task's
+                # output classes. Full-width CE actively suppresses old-task logits,
+                # which is the #1 cause of catastrophic forgetting.
+                num_classes_per_task = 10  # Split-CIFAR100
+                if task_id is not None and logits.shape[-1] >= (task_id + 1) * num_classes_per_task:
+                    start_cls = task_id * num_classes_per_task
+                    end_cls = (task_id + 1) * num_classes_per_task
+                    task_logits = logits[:, start_cls:end_cls]
+                    task_y = target_data.view(-1) % num_classes_per_task
+                    loss = F.cross_entropy(task_logits, task_y)
+                else:
+                    loss = F.cross_entropy(logits, target_data.view(-1))
             
             # 4. Memory Regularization
             reg_loss = torch.tensor(0.0, device=self.device)
@@ -1173,7 +1207,7 @@ class AdaptiveFramework(nn.Module):
 
         # [V16] Automatically populate feedback buffer for Replay/Dreaming/Consolidation
         if self.feedback_buffer:
-            self.feedback_buffer.add(model_inputs, {}, logits, target_data, 0.0, loss.item())
+            self.feedback_buffer.add(model_inputs, {}, logits, target_data, 0.0, loss.item(), task_id=task_id)
 
         # [V8.0] Ensure all metrics for demo are present
 
@@ -1252,8 +1286,13 @@ class AdaptiveFramework(nn.Module):
             # Call train_step with unpacked arguments
             # Note: We don't want infinite recursion, so we call a simpler step or just forward/backward manually
             # But for simplicity in V8.0, we'll just do manual forward/backward here to avoid complexity
-            
             self.optimizer.zero_grad()
+            
+            # [V17] Determine the task_id for this replay batch.
+            # All samples in the batch may come from different tasks,
+            # so we group by task_id and compute scoped loss for each.
+            sample_task_ids = [getattr(s, 'task_id', -1) for s in samples]
+            
             if isinstance(batch_args, list):
                 outputs = self.model(*batch_args)
             else:
@@ -1263,42 +1302,44 @@ class AdaptiveFramework(nn.Module):
             elif isinstance(outputs, tuple): logits = outputs[0]
             else: logits = outputs
 
+
             metrics = {}
+            num_classes_per_task = 10  # Split-CIFAR100
             
-            # Loss Calculation
-            # Loss Calculation (Universal V2 - Synced with train_step)
-            # Supports:
-            # - Vision (Images [B, C, H, W])
-            # - Audio (Spectrograms [B, C, T, F] or Waveforms [B, 1, T])
-            # - Language (Sequences [B, T])
-            # - Tabular (Vectors [B, D])
-            
-            # 1. Regression / Autoencoder / Audio Enhancement (Shapes match)
-            if logits.shape == batch_targets.shape:
-                loss = F.mse_loss(logits.float(), batch_targets.float())
-            
-            # 2. Classification / Sequence
-            elif logits.dim() > batch_targets.dim():
-                # Handle Sequence Classification [Batch, Seq, Vocab] vs [Batch, Seq]
-                if logits.dim() == 3 and batch_targets.dim() == 2:
-                     # Check if Classification (Long) or Regression (Float)
-                     if batch_targets.dtype == torch.long or batch_targets.shape[1] != logits.shape[2]:
-                         # Flatten for CrossEntropy: [B*Seq, Vocab] vs [B*Seq]
-                         loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), batch_targets.reshape(-1))
-                     else:
-                         # Regression: Pool Sequence [B, S, D] -> [B, D] vs [B, D]
-                         pooled_logits = logits.mean(dim=1)
-                         loss = F.mse_loss(pooled_logits.float(), batch_targets.float())
+            # [V17] TASK-SCOPED DREAMING: Compute per-sample task-scoped CE loss
+            # to prevent replay from suppressing other tasks' logits.
+            if logits.shape != batch_targets.shape and logits.dim() > batch_targets.dim() and batch_targets.dim() == 1:
+                if batch_targets.dtype != torch.long:
+                    batch_targets = batch_targets.long()
                 
-                # Standard Classification [Batch, C] vs [Batch]
-                elif batch_targets.dim() == 1:
-                     if batch_targets.dtype != torch.long:
-                         batch_targets = batch_targets.long()
-                     loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_targets.view(-1))
+                # Check if all samples share the same task
+                unique_tasks = set(sample_task_ids)
+                if len(unique_tasks) == 1 and -1 not in unique_tasks:
+                    tid = sample_task_ids[0]
+                    if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
+                        s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
+                        loss = F.cross_entropy(logits[:, s:e], batch_targets % num_classes_per_task)
+                    else:
+                        loss = F.cross_entropy(logits, batch_targets)
+                elif -1 not in unique_tasks:
+                    # Mixed-task batch: compute per-sample scoped loss
+                    per_sample_losses = []
+                    for i, tid in enumerate(sample_task_ids):
+                        if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
+                            s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
+                            per_sample_losses.append(
+                                F.cross_entropy(logits[i:i+1, s:e], (batch_targets[i:i+1] % num_classes_per_task))
+                            )
+                        else:
+                            per_sample_losses.append(
+                                F.cross_entropy(logits[i:i+1], batch_targets[i:i+1])
+                            )
+                    loss = torch.stack(per_sample_losses).mean()
                 else:
-                     loss = F.mse_loss(logits.float(), batch_targets.float())
-            
-            # 3. Fallback
+                    # Fallback: no task_id available
+                    loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_targets.view(-1))
+            elif logits.shape == batch_targets.shape:
+                loss = F.mse_loss(logits.float(), batch_targets.float())
             else:
                 loss = F.mse_loss(logits.float(), batch_targets.float())
             

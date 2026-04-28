@@ -304,6 +304,10 @@ class ReptileOptimizer:
         self.step_counter = 0
         self.logger = logging.getLogger('ReptileOptimizer')
         
+        # [V17] Hardening: Link to memory for CAS protection
+        self.memory = getattr(model, 'memory', None)
+
+        
     def step(self):
         """
         Called every training step. Performs meta-update every k steps.
@@ -362,6 +366,17 @@ class ReptileOptimizer:
             # Update Parameters (Weights/Biases)
             for name, param in self.model.named_parameters():
                 if name in new_state_dict:
+                    # [V17] UNYIELDING SOUL: Apply Sacred Mask protection to Reptile updates
+                    if self.memory and hasattr(self.memory, 'sacred_mask'):
+                        mask = self.memory.sacred_mask.get(name, None)
+                        if mask is not None and mask.any():
+                            # Only update parts of the parameter that are NOT sacred
+                            mask = mask.to(param.device)
+                            diff = new_state_dict[name].to(param.device) - param.data
+                            param.data.add_(diff * (~mask))
+                            continue
+                    
+                    # Normal update if no mask
                     param.data.copy_(new_state_dict[name])
             
             # Update Buffers (Running Mean/Var) - handled via state_dict load if needed,
