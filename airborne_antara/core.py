@@ -1208,6 +1208,11 @@ class AdaptiveFramework(nn.Module):
         # [V16] Automatically populate feedback buffer for Replay/Dreaming/Consolidation
         if self.feedback_buffer:
             self.feedback_buffer.add(model_inputs, {}, logits, target_data, 0.0, loss.item(), task_id=task_id)
+            # [V17] Also populate prioritized_buffer so dreaming can sample
+            if self.prioritized_buffer:
+                snapshot = self.feedback_buffer.buffer[-1]  # Get the just-added snapshot
+                z_score = consciousness_metrics.get('surprise', 0.0)
+                self.prioritized_buffer.add(snapshot, z_score=z_score, importance=loss.item())
 
         # [V8.0] Ensure all metrics for demo are present
 
@@ -1488,7 +1493,8 @@ class AdaptiveFramework(nn.Module):
         with torch.no_grad():
             # 1. Forward Pass
             # This handles Perception, MoE Routing, and Introspection automatically
-            outputs, log_var, affine_modifiers, moe_indices = self.forward(*model_inputs)
+            # [V17] Pass task_id so MoE routes through the correct expert during eval
+            outputs, log_var, affine_modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id)
             
             # Extract main prediction
             if hasattr(outputs, 'logits'):
