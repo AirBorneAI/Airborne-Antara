@@ -1171,7 +1171,12 @@ class AdaptiveFramework(nn.Module):
             if repairs > 0:
                 self.logger.info(f"[AUTONOMIC] Neural Health Stabilized ({repairs} repairs).")
 
+        # [V16] Automatically populate feedback buffer for Replay/Dreaming/Consolidation
+        if self.feedback_buffer:
+            self.feedback_buffer.add(model_inputs, {}, logits, target_data, 0.0, loss.item())
+
         # [V8.0] Ensure all metrics for demo are present
+
         z_score = consciousness_metrics.get('surprise', 0.0)
         mode = self.meta_controller.current_mode if self.meta_controller else 'NORMAL'
         plasticity = consciousness_metrics.get('learning_rate_multiplier', 1.0)

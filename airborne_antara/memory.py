@@ -481,8 +481,12 @@ class UnifiedMemoryHandler:
             self.models = [models]
         else:
             self.models = models
+        
+        # Legacy fallback for single-model logic (V15 Bugfix)
+        self.model = self.models[0] if self.models else None
 
         self.method = method
+
         self.feature_dim = feature_dim
         self.si_lambda = si_lambda
         self.si_xi = si_xi
