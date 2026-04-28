@@ -571,8 +571,10 @@ class UnifiedMemoryHandler:
                         if name in param_before and p.grad is not None:
                             delta = (p.data - param_before[name].to(p.device)).detach()
                             g = p.grad.data.detach()
-                            # Accumulate importance (accum is on CPU)
-                            self.omega_accum[name] += (-g * delta).cpu()
+                            # [V17.6] TITAN FLOW: Accumulate importance on the same device as the parameter
+                            if name not in self.omega_accum:
+                                self.omega_accum[name] = torch.zeros_like(p).detach()
+                            self.omega_accum[name] += (-g * delta)
         except Exception:
             pass
     
@@ -598,7 +600,9 @@ class UnifiedMemoryHandler:
                     for name, p in model.named_parameters():
                         if not p.requires_grad: continue
                         
-                        s = self.omega_accum.get(name, torch.zeros_like(p).cpu()).to(p.device)
+                        # [V17.6 Fix] Handle device-resident accumulators
+                        _accum = self.omega_accum.get(name, torch.zeros_like(p).cpu())
+                        s = _accum.to(p.device)
                         anchor = self.anchor.get(name, p.clone().detach().cpu()).to(p.device)
                         
                         # Damping + Epsilon to prevent NaN
@@ -609,7 +613,9 @@ class UnifiedMemoryHandler:
                         # Fuse and clamp
                         new_omega = torch.nan_to_num(new_omega, nan=0.0, posinf=1e6, neginf=0.0)
                         self.omega[name] = new_omega.clamp(min=0.0, max=1e6).cpu() # Back to CPU
-                        self.omega_accum[name].zero_() # Reset accumulator on CPU
+                        
+                        # Reset accumulator on its native device
+                        _accum.zero_() 
                         self.anchor[name] = p.data.clone().detach().cpu() # New anchor on CPU
         
         # 2. Consolidate EWC (Requires GRAD for backward pass)

@@ -469,6 +469,9 @@ class AdaptiveFramework(nn.Module):
         ).to(self.device)
 
         # 5. Memory System (Unified Handler V9.4)
+        # [V15.1] FULL SPECTRUM PROTECTION
+        # Now that backward() is unified, we can safely track ALL modules 
+        # to ensure the Perception and Introspection policies are also preserved.
         tracked_models = [self.model]
         if self.world_model:
             tracked_models.append(self.world_model)
@@ -862,12 +865,16 @@ class AdaptiveFramework(nn.Module):
             # [V8.3] Surgical Hardening: Skip modifiers and accumulation in internal maintenance mode
             if self._internal_consolidation_mode:
                 log_var, action = torch.tensor(0.0), torch.tensor([0.0, 0.0])
-                self.current_modifiers = action # [2]
+                self.current_modifiers = action.detach() # [V17] Detach
                 affine_modifiers = action.detach()
             elif self.training:
                 # Standard training flow
                 log_var, action, log_prob = self.introspection_engine(global_state)
-                self.meta_log_probs.append(log_prob)
+                # [V15.2 IRON CLAD] Only record log-probs during "Real" training.
+                # If we are in internal consolidation (dreaming/replay), we skip 
+                # meta-prob collection to prevent graph leakage across steps.
+                if log_prob is not None and not self._internal_consolidation_mode:
+                    self.meta_log_probs.append(log_prob)
                 self.current_modifiers = action.detach().squeeze() # [V17] CRITICAL: Detach to break step-to-step graph link
                 affine_modifiers = action.detach()
             else:
@@ -881,7 +888,8 @@ class AdaptiveFramework(nn.Module):
             self.meta_log_probs.clear()
 
         # [V8.0] Store fused latent for consciousness
-        self._last_fused_latent = fused_latent
+        # [V17] CRITICAL: Detach to prevent cross-step graph leakage
+        self._last_fused_latent = fused_latent.detach() if fused_latent is not None else None
 
         # [V9.0] World Model Foresight - Just Record Inputs for optimization in train_step
         if self.world_model and fused_latent is not None:
@@ -899,6 +907,37 @@ class AdaptiveFramework(nn.Module):
             
         return output, log_var, affine_modifiers, moe_indices
 
+    def _clear_all_internal_caches(self):
+        """[V17] The Nuclear Reset: Purge every member variable that could hold a tensor."""
+        self.meta_log_probs.clear()
+        self.current_modifiers = None
+        self._last_fused_latent = None
+        self._current_wm_inputs = None
+        self._last_latent = None
+        
+        # Clear auxiliary losses in MoE
+        if hasattr(self.model, 'zero_grad'):
+            self.model.zero_grad(set_to_none=True)
+        
+        # Manually Reach into MoE if possible
+        for m in self.modules():
+            if hasattr(m, 'aux_loss'):
+                # [V17.2] Use 0.0 instead of None to prevent 'NoneType' errors
+                # if the next forward pass fails early.
+                m.aux_loss = 0.0 
+            if hasattr(m, 'expert_usage'):
+                # We don't want to lose usage stats, so we just detach it
+                if isinstance(m.expert_usage, torch.Tensor):
+                    m.expert_usage = m.expert_usage.detach()
+        
+        if self.consciousness:
+            self.consciousness.current_thought_trace.clear()
+            
+        # [V17] Final detaching of any lingering attributes
+        for attr in ['_last_loss_val', 'reward_baseline']:
+            if hasattr(self, attr) and isinstance(getattr(self, attr), torch.Tensor):
+                setattr(self, attr, getattr(self, attr).detach())
+                
     # Removed duplicate inference_step (V8.4) as it is superseded by V9.1 below.
 
     def clear_cognitive_buffers(self):
@@ -971,11 +1010,11 @@ class AdaptiveFramework(nn.Module):
         if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
             self.world_model_optimizer.zero_grad()
             
-        # [V17] Hard State Reset: Clear buffers to prevent graph leakage 
-        # across training steps, especially if a previous step failed.
-        if hasattr(self, 'meta_log_probs'):
-            self.meta_log_probs.clear()
-        self.current_modifiers = None
+        # [V17] Hard State Reset: Clear ALL buffers and internal caches
+        # to ensure absolute graph isolation across training steps.
+        self._clear_all_internal_caches()
+        
+        # [V9.4] CAS Protocol: Saturation & Expansion Trigger
         
         # [V9.4] CAS Protocol: Saturation & Expansion Trigger
         # If backbone is saturated (>95%), we must expand the mind.
@@ -1004,172 +1043,168 @@ class AdaptiveFramework(nn.Module):
         
         # 3. Forward Pass & Loss Calculation
         total_loss = None
-        # [V9.2] Use modern torch.amp.autocast
-        with torch.amp.autocast('cuda', enabled=self.config.use_amp and self.device.type == 'cuda'):
-            # [V12] Fix: Pass task_id to forward for expert routing
-            output, log_var, modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id)
-            
-            # Unpack standard model outputs
-            if isinstance(output, tuple):
-                logits = output[0]
-                features = output[1] if len(output) > 1 else None
-            else:
-                logits = output
-                features = None
-
-            # [V8.0] Consciousness Observation (System 2)
-            consciousness_metrics = {}
-            if self.consciousness:
-                # Observe and Think (Recursive Global Workspace)
-                # Use features if available, else fused latent, else None
-                cons_features = features.detach() if features is not None else None
-                obs = self.consciousness.observe(
-                    y_true=target_data, 
-                    y_pred=logits, 
-                    features=cons_features,
-                    internal_mode=self._internal_consolidation_mode
-                )
-                consciousness_metrics = obs
-            
-            # 3. Compute Base Loss
-            # Universal Loss: Route based on target type (Classification vs Regression)
-            if target_data.dtype in [torch.float16, torch.float32, torch.float64] or logits.shape == target_data.shape:
-                loss = F.mse_loss(logits, target_data)
-            else:
-                # [V17] TASK-SCOPED CLASSIFICATION: Only compute loss on current task's
-                # output classes. Full-width CE actively suppresses old-task logits,
-                # which is the #1 cause of catastrophic forgetting.
-                num_classes_per_task = 10  # Split-CIFAR100
-                if task_id is not None and logits.shape[-1] >= (task_id + 1) * num_classes_per_task:
-                    start_cls = task_id * num_classes_per_task
-                    end_cls = (task_id + 1) * num_classes_per_task
-                    task_logits = logits[:, start_cls:end_cls]
-                    task_y = target_data.view(-1) % num_classes_per_task
-                    loss = F.cross_entropy(task_logits, task_y)
+        try:
+            # [V9.2] Use modern torch.amp.autocast
+            with torch.amp.autocast('cuda', enabled=self.config.use_amp and self.device.type == 'cuda'):
+                # [V12] Fix: Pass task_id to forward for expert routing
+                output, log_var, modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id)
+                
+                # Unpack standard model outputs
+                if isinstance(output, tuple):
+                    logits = output[0]
+                    features = output[1] if len(output) > 1 else None
                 else:
-                    loss = F.cross_entropy(logits, target_data.view(-1))
-            
-            # 4. Memory Regularization
-            reg_loss = torch.tensor(0.0, device=self.device)
-            if self.memory:
-                penalty = self.memory.compute_penalty()
-                # [V9.3] Sentient Plasticity Control (Exponential Stability)
-                # High Surprise (Error > Mean) -> Scale ~ 0 (High Plasticity)
-                # Low Surprise (Error < Mean) -> Scale ~ 1 (High Consolidation)
-                if 'surprise' in consciousness_metrics:
-                    s_val = float(consciousness_metrics['surprise'])
-                    # Stable exponential mapping: exp(-s)
-                    # We clamp surprise to [-3, 3] to prevent extreme scaling or vanishing
-                    s_clamped = max(-3.0, min(3.0, s_val))
-                    scaling_factor = math.exp(-s_clamped)
-                    penalty *= scaling_factor
-                reg_loss = penalty
+                    logits = output
+                    features = None
 
-            # [V9.0] World Model Latent Prediction (I-JEPA)
-            wm_loss = torch.tensor(0.0, device=self.device)
-            if self.world_model and features is not None:
-                # If we have a sequence, we can predict z_{i+1} from z_i
-                if features.dim() == 3 and features.size(1) > 1:
-                    z_t = features[:, :-1, :]
-                    z_actual = features[:, 1:, :].detach()
-                    z_pred = self.world_model(z_t)
-                    _, wm_loss = self.world_model.compute_surprise(z_pred, z_actual)
-                elif hasattr(self, '_last_latent') and self._last_latent is not None:
-                    # Cross-step prediction
-                    z_actual = features.detach()
-                    z_pred = self.world_model(self._last_latent)
-                    # Surprise signal can be used by consciousness too
-                    _, wm_loss = self.world_model.compute_surprise(z_pred, z_actual)
+                # [V8.0] Consciousness Observation (System 2)
+                consciousness_metrics = {}
+                if self.consciousness:
+                    # Observe and Think (Recursive Global Workspace)
+                    cons_features = features.detach() if features is not None else None
+                    obs = self.consciousness.observe(
+                        y_true=target_data, 
+                        y_pred=logits, 
+                        features=cons_features,
+                        internal_mode=self._internal_consolidation_mode
+                    )
+                    consciousness_metrics = obs
                 
-                # Store latent for next step
-                self._last_latent = features.detach()
-
-            # [V9.2] Expert Balancing Loss
-            aux_loss = torch.tensor(0.0, device=self.device)
-            if hasattr(self.model, 'get_aux_loss'):
-                aux_loss = self.model.get_aux_loss() * 0.1
-
-            # Aggregation logic inside autocast
-            total_loss = loss + reg_loss + aux_loss + (wm_loss * 0.5)
-        
-        if total_loss is None:
-            raise RuntimeError("Cortex Critical: total_loss was never computed in train_step")
-        
-        # 5. Backward Pass with AMP Scaling
-        # [V17] Hardened Sequence: 
-        # We MUST call backward on everything that depends on the graph BEFORE we step the optimizer.
-        # If total_loss and meta_loss are disjoint, retain_graph is not needed.
-        # But we use it if meta_log_probs exists to be safe against accidental links.
-        has_meta = len(self.meta_log_probs) > 0
-        self.scaler.scale(total_loss).backward(retain_graph=has_meta)
-
-        # [V8.0] Sentient Meta-Optimization Loop (REINFORCE with Advantage)
-        if has_meta:
-            current_loss_val = loss.item()
-            if hasattr(self, '_last_loss_val'):
-                # Advantage-based policy gradient
-                reward = self._last_loss_val - current_loss_val
-                self.reward_baseline = 0.9 * self.reward_baseline + 0.1 * reward
-                advantage = reward - self.reward_baseline
+                # 3. Compute Base Loss
+                if target_data.dtype in [torch.float16, torch.float32, torch.float64] or logits.shape == target_data.shape:
+                    loss = F.mse_loss(logits, target_data)
+                else:
+                    num_classes_per_task = 10 
+                    if task_id is not None and logits.shape[-1] >= (task_id + 1) * num_classes_per_task:
+                        start_cls = task_id * num_classes_per_task
+                        end_cls = (task_id + 1) * num_classes_per_task
+                        task_logits = logits[:, start_cls:end_cls]
+                        task_y = target_data.view(-1) % num_classes_per_task
+                        loss = F.cross_entropy(task_logits, task_y)
+                    else:
+                        loss = F.cross_entropy(logits, target_data.view(-1))
                 
-                # REINFORCE update: Maximize Advantage * LogProb
-                # We use detached advantage to ensure gradients ONLY flow through log_probs
-                meta_loss = -torch.stack(self.meta_log_probs).mean() * float(advantage)
-                
-                # Update meta-params (System 2)
-                self.meta_optimizer.zero_grad()
-                self.scaler.scale(meta_loss).backward() 
-            
-            self._last_loss_val = current_loss_val
-        
-        # 6. Unscale & Clip
-        self.scaler.unscale_(self.optimizer)
-        if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
-            self.scaler.unscale_(self.adapter_optimizer)
-        if hasattr(self, 'meta_optimizer') and self.meta_optimizer:
-            self.scaler.unscale_(self.meta_optimizer)
-        if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
-            self.scaler.unscale_(self.world_model_optimizer)
-        
-        # [V9.2] Memory Handler now sees UNSCALED gradients for OGD projection
-        if self.config.use_gradient_centralization:
-            self._apply_gradient_centralization()
-        
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.gradient_clip_norm)
-        if self.world_model:
-            torch.nn.utils.clip_grad_norm_(self.world_model.parameters(), self.config.gradient_clip_norm)
-        
-        # 7. Optimizer Steps via Scaler
-        self.scaler.step(self.optimizer)
-        if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
-            self.scaler.step(self.adapter_optimizer)
-        if hasattr(self, 'meta_optimizer') and self.meta_optimizer:
-            self.scaler.step(self.meta_optimizer)
-        if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
-            self.scaler.step(self.world_model_optimizer)
-            
-        self.scaler.update()
-        
-        # [V17] Post-Optimizer Sacred Restoration (combats weight decay drift)
-        self._apply_sacred_restoration()
-        
-        # Clear meta buffers
-        if self.meta_log_probs:
-            self.meta_log_probs.clear()
-            self.current_modifiers = None
+                # 4. Memory Regularization
+                reg_loss = torch.tensor(0.0, device=self.device)
+                if self.memory:
+                    penalty = self.memory.compute_penalty()
+                    if 'surprise' in consciousness_metrics:
+                        s_val = float(consciousness_metrics['surprise'])
+                        s_clamped = max(-3.0, min(3.0, s_val))
+                        scaling_factor = math.exp(-s_clamped)
+                        penalty *= scaling_factor
+                    reg_loss = penalty
 
-        # [V9.2 BUGFIX] Removed duplicate self.optimizer.step(). 
-        # Weights are already updated by self.scaler.step() above.
+                # [V9.0] World Model Latent Prediction
+                wm_loss = torch.tensor(0.0, device=self.device)
+                if self.world_model and features is not None:
+                    if features.dim() == 3 and features.size(1) > 1:
+                        z_t = features[:, :-1, :]
+                        z_actual = features[:, 1:, :].detach()
+                        z_pred = self.world_model(z_t)
+                        _, wm_loss = self.world_model.compute_surprise(z_pred, z_actual)
+                    elif hasattr(self, '_last_latent') and self._last_latent is not None:
+                        z_actual = features.detach()
+                        z_pred = self.world_model(self._last_latent)
+                        _, wm_loss = self.world_model.compute_surprise(z_pred, z_actual)
+                    self._last_latent = features.detach()
+
+                # [V9.2] Expert Balancing Loss
+                aux_loss = torch.tensor(0.0, device=self.device)
+                if hasattr(self.model, 'get_aux_loss'):
+                    aux_loss = self.model.get_aux_loss() * 0.1
+
+                # Aggregation logic inside autocast
+                total_loss = loss + reg_loss + aux_loss + (wm_loss * 0.5)
         
-        # [V8.0] Meta-Loss Update complete
-        # Redundant adapter step removed (now handled by scaler)
-        
-        # [V8.0] Lookahead Step
-        if self.config.use_lookahead:
-            self._lookahead_step()
+            if total_loss is None:
+                raise RuntimeError("Cortex Critical: total_loss was never computed in train_step")
             
-        if self.memory and self.memory.method != 'none':
-            self.memory.accumulate_path(param_before)
+            # 5. [V15 TITANIUM] Consolidated Backward Sequence
+            # We integrate the Meta-Loss directly into the main gradient flow.
+            meta_loss = torch.tensor(0.0, device=self.device)
+            has_meta = len(self.meta_log_probs) > 0
+            
+            if has_meta:
+                current_loss_val = loss.item()
+                if hasattr(self, '_last_loss_val'):
+                    # Advantage-based policy gradient
+                    reward = self._last_loss_val - current_loss_val
+                    self.reward_baseline = 0.9 * self.reward_baseline + 0.1 * reward
+                    advantage = reward - self.reward_baseline
+                    
+                    # REINFORCE update: Maximize Advantage * LogProb
+                    # advantage is cast to float to ensure it acts as a constant in the graph
+                    meta_loss = -torch.stack(self.meta_log_probs).mean() * float(advantage)
+                
+                self._last_loss_val = current_loss_val
+
+            # Final Aggregation
+            final_loss = total_loss + meta_loss
+            
+            # SINGLE BACKWARD PASS (The "Killshot" for graph errors)
+            self.scaler.scale(final_loss).backward()
+            
+            # 6. Unscale & Clip
+            self.scaler.unscale_(self.optimizer)
+            if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
+                self.scaler.unscale_(self.adapter_optimizer)
+            if hasattr(self, 'meta_optimizer') and self.meta_optimizer:
+                self.scaler.unscale_(self.meta_optimizer)
+            if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
+                self.scaler.unscale_(self.world_model_optimizer)
+            
+            # [V9.2] Memory Handler now sees UNSCALED gradients for OGD projection
+            if self.config.use_gradient_centralization:
+                self._apply_gradient_centralization()
+            
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.gradient_clip_norm)
+            if self.world_model:
+                torch.nn.utils.clip_grad_norm_(self.world_model.parameters(), self.config.gradient_clip_norm)
+            
+            # 7. Optimizer Steps via Scaler
+            self.scaler.step(self.optimizer)
+            if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
+                self.scaler.step(self.adapter_optimizer)
+            if hasattr(self, 'meta_optimizer') and self.meta_optimizer:
+                self.scaler.step(self.meta_optimizer)
+            if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
+                self.scaler.step(self.world_model_optimizer)
+                
+            self.scaler.update()
+
+            # [V17.3] Path Accumulation MUST happen before the finally block clears gradients
+            if self.memory and self.memory.method != 'none':
+                self.memory.accumulate_path(param_before)
+
+            # [V17] Post-Optimizer Sacred Restoration (combats weight decay drift)
+            self._apply_sacred_restoration()
+            
+            # [V8.0] Lookahead Step
+            if self.config.use_lookahead:
+                self._lookahead_step()
+
+        finally:
+            # MANDATORY CLEANUP (V17.0 ETERNAL MIND - TOTAL AMNESIA)
+            # This runs even if forward(), backward() or optimizer.step() fails.
+            self._clear_all_internal_caches()
+            
+            # [V17] Absolute Graph Kill: Zero gradients and release tensor memory
+            # We must zero ALL tracked components to prevent graph leaks in meta-policy
+            with torch.no_grad():
+                self.model.zero_grad(set_to_none=True)
+                if self.introspection_engine:
+                    self.introspection_engine.zero_grad(set_to_none=True)
+                if self.world_model:
+                    self.world_model.zero_grad(set_to_none=True)
+                if self.perception:
+                    self.perception.zero_grad(set_to_none=True)
+            
+            # Flush memory to prevent fragmentation-induced graph errors
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         
         # [V8.1] Direct Weight Adaptation via PerformanceMonitor
         if self.performance_monitor and hasattr(self, 'current_modifiers') and self.current_modifiers is not None:
@@ -1783,13 +1818,37 @@ class AdaptiveFramework(nn.Module):
             return
             
         with torch.no_grad():
-            for name, param in self.model.named_parameters():
+            # [V17.6] TITAN FLOW: Use cached masks on device to eliminate sync bottleneck
+            for name, param in self.named_parameters():
                 mask = self.memory.sacred_mask.get(name, None)
                 if mask is not None and mask.any():
                     anchor = self.memory.anchor.get(name, None)
                     if anchor is not None:
-                        mask = mask.to(param.device)
-                        anchor = anchor.to(param.device)
+                        # Ensure mask and anchor are on the correct device (Lazy migration)
+                        if mask.device != param.device:
+                            self.memory.sacred_mask[name] = mask.to(param.device)
+                            mask = self.memory.sacred_mask[name]
+                        if anchor.device != param.device:
+                            self.memory.anchor[name] = anchor.to(param.device)
+                            anchor = self.memory.anchor[name]
+                        
                         if anchor.shape != param.shape:
                              anchor = anchor.view_as(param)
+                        
+                        # Surgical Restoration (In-place)
                         param.data.copy_(torch.where(mask, anchor, param.data))
+
+            # [V18] BN Cryostasis: Freeze running stats for layers with sacred weights
+            # This prevents Task 0 normalization drift during Task 1 training.
+            for name, m in self.named_modules():
+                if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                    # Check if the weight or bias of this BN is sacred
+                    is_sacred = False
+                    for p_name in ['weight', 'bias']:
+                        full_name = f"{name}.{p_name}" if name else p_name
+                        if full_name in self.memory.sacred_mask and self.memory.sacred_mask[full_name].any():
+                            is_sacred = True
+                            break
+                    if is_sacred:
+                        m.eval()
+                        m.track_running_stats = False

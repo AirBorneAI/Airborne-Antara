@@ -66,6 +66,9 @@ class GatingNetwork(nn.Module):
         self.top_k = top_k
 
     def forward(self, x, task_id=None):
+        # [V17] Hard Reset of local cache to prevent graph leakage
+        self.aux_loss = torch.tensor(0.0, device=x.device)
+        
         # x: [batch_size, input_dim] or [batch_size, seq, input_dim]
         if x.dim() == 3:
             # SOTA Sequence Pooling: [B, S, D] -> [B, D]
@@ -113,7 +116,8 @@ class GatingNetwork(nn.Module):
         return weights, top_k_indices
 
     def get_aux_loss(self):
-        return getattr(self, 'aux_loss', 0.0)
+        val = getattr(self, 'aux_loss', 0.0)
+        return val if val is not None else 0.0
 
 class SparseMoE(nn.Module):
     """
@@ -230,8 +234,12 @@ class HierarchicalMoE(nn.Module):
     def get_aux_loss(self):
         total_loss = 0.0
         if hasattr(self.domain_router, 'get_aux_loss'):
-            total_loss += self.domain_router.get_aux_loss()
+            val = self.domain_router.get_aux_loss()
+            if val is not None:
+                total_loss += val
         for domain in self.domains:
             if hasattr(domain, 'get_aux_loss'):
-                total_loss += domain.get_aux_loss()
+                val = domain.get_aux_loss()
+                if val is not None:
+                    total_loss += val
         return total_loss
