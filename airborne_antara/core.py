@@ -967,6 +967,12 @@ class AdaptiveFramework(nn.Module):
             self.meta_optimizer.zero_grad()
         if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
             self.world_model_optimizer.zero_grad()
+            
+        # [V17] Hard State Reset: Clear buffers to prevent graph leakage 
+        # across training steps, especially if a previous step failed.
+        if hasattr(self, 'meta_log_probs'):
+            self.meta_log_probs.clear()
+        self.current_modifiers = None
         
         # [V9.4] CAS Protocol: Saturation & Expansion Trigger
         # If backbone is saturated (>95%), we must expand the mind.
@@ -994,6 +1000,7 @@ class AdaptiveFramework(nn.Module):
             param_before = self.memory.before_step_snapshot()
         
         # 3. Forward Pass & Loss Calculation
+        total_loss = None
         # [V9.2] Use modern torch.amp.autocast
         with torch.amp.autocast('cuda', enabled=self.config.use_amp and self.device.type == 'cuda'):
             # [V12] Fix: Pass task_id to forward for expert routing
@@ -1079,15 +1086,39 @@ class AdaptiveFramework(nn.Module):
             if hasattr(self.model, 'get_aux_loss'):
                 aux_loss = self.model.get_aux_loss() * 0.1
 
+            # Aggregation logic inside autocast
             total_loss = loss + reg_loss + aux_loss + (wm_loss * 0.5)
-
+        
+        if total_loss is None:
+            raise RuntimeError("Cortex Critical: total_loss was never computed in train_step")
+        
         # 5. Backward Pass with AMP Scaling
         self.scaler.scale(total_loss).backward(retain_graph=len(self.meta_log_probs) > 0)
+
+        # [V8.0] Sentient Meta-Optimization Loop (REINFORCE with Advantage)
+        # CRITICAL: This must happen BEFORE the optimizer step to ensure graph validity.
+        if self.meta_log_probs:
+            current_loss_val = loss.item()
+            if hasattr(self, '_last_loss_val'):
+                reward = self._last_loss_val - current_loss_val
+                self.reward_baseline = 0.9 * self.reward_baseline + 0.1 * reward
+                advantage = reward - self.reward_baseline
+                
+                # REINFORCE update: Maximize Advantage * LogProb
+                meta_loss = -torch.stack(self.meta_log_probs).mean() * advantage
+                
+                # Update meta-params (System 2)
+                self.meta_optimizer.zero_grad()
+                self.scaler.scale(meta_loss).backward() # Scale meta-loss too for safety
+                # Meta-optimizer step will happen after scaling update
+            self._last_loss_val = current_loss_val
         
-        # Unscale for gradient clipping/centralization
+        # 6. Unscale & Clip
         self.scaler.unscale_(self.optimizer)
         if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
             self.scaler.unscale_(self.adapter_optimizer)
+        if hasattr(self, 'meta_optimizer') and self.meta_optimizer:
+            self.scaler.unscale_(self.meta_optimizer)
         if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
             self.scaler.unscale_(self.world_model_optimizer)
         
@@ -1103,6 +1134,8 @@ class AdaptiveFramework(nn.Module):
         self.scaler.step(self.optimizer)
         if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
             self.scaler.step(self.adapter_optimizer)
+        if hasattr(self, 'meta_optimizer') and self.meta_optimizer:
+            self.scaler.step(self.meta_optimizer)
         if hasattr(self, 'world_model_optimizer') and self.world_model_optimizer:
             self.scaler.step(self.world_model_optimizer)
             
@@ -1110,30 +1143,11 @@ class AdaptiveFramework(nn.Module):
         
         # [V17] Post-Optimizer Sacred Restoration (combats weight decay drift)
         self._apply_sacred_restoration()
-# [V8.0] Sentient Meta-Optimization Loop (REINFORCE with Advantage)
-        # This module optimizes the IntrospectionEngine by treating its affine modifiers 
-        # as a policy that aims to maximize immediate loss reduction.
-        # Reward = (Previous Loss - Current Loss)
+        
+        # Clear meta buffers
         if self.meta_log_probs:
-            current_loss_val = loss.item()
-            if hasattr(self, '_last_loss_val'):
-                reward = self._last_loss_val - current_loss_val
-                
-                # Update reward baseline (moving average)
-                self.reward_baseline = 0.9 * self.reward_baseline + 0.1 * reward
-                advantage = reward - self.reward_baseline
-                
-                # REINFORCE update: Maximize Advantage * LogProb
-                meta_loss = -torch.stack(self.meta_log_probs).mean() * advantage
-                
-                self.meta_optimizer.zero_grad()
-                meta_loss.backward() 
-                self.meta_optimizer.step()
-                
-            self._last_loss_val = current_loss_val
             self.meta_log_probs.clear()
-            self.current_modifiers = None 
-            self._apply_sacred_restoration()
+            self.current_modifiers = None
 
         # [V9.2 BUGFIX] Removed duplicate self.optimizer.step(). 
         # Weights are already updated by self.scaler.step() above.
@@ -1188,14 +1202,18 @@ class AdaptiveFramework(nn.Module):
                 criterion=getattr(self.config, 'consolidation_criterion', 'hybrid')
             )
             if should_consolidate:
-                self.memory.consolidate(
-                    feedback_buffer=self.feedback_buffer,
-                    current_step=self.step_count,
-                    z_score=z_score,
-                    mode=self.meta_controller.current_mode if self.meta_controller else 'NORMAL'
-                )
-                self.consolidation_scheduler.record_consolidation(self.step_count)
-                self.logger.info(f"[MEMORY] Auto-consolidation triggered: {reason}")
+                self._internal_consolidation_mode = True
+                try:
+                    self.memory.consolidate(
+                        feedback_buffer=self.feedback_buffer,
+                        current_step=self.step_count,
+                        z_score=z_score,
+                        mode=self.meta_controller.current_mode if self.meta_controller else 'NORMAL'
+                    )
+                    self.consolidation_scheduler.record_consolidation(self.step_count)
+                    self.logger.info(f"[MEMORY] Auto-consolidation triggered: {reason}")
+                finally:
+                    self._internal_consolidation_mode = False
             
         # [V9.0] Periodic Neural Health Check & Autonomic Repair
         if self.health_monitor and self.step_count % self.config.health_check_interval == 0:
@@ -1259,132 +1277,136 @@ class AdaptiveFramework(nn.Module):
             return
             
         self.model.train()
-        for _ in range(num_epochs):
-            buffer_size = len(self.feedback_buffer.buffer)
-            effective_batch = min(batch_size, buffer_size)
+        self._internal_consolidation_mode = True # [V17] Critical: Detach modifiers to prevent graph leaks
+        try:
+            for _ in range(num_epochs):
+                buffer_size = len(self.feedback_buffer.buffer)
+                effective_batch = min(batch_size, buffer_size)
 
-            if effective_batch <= 0:
-                return
+                if effective_batch <= 0:
+                    return
 
-            if self.prioritized_buffer:
-                samples = self.prioritized_buffer.sample_batch(
-                    effective_batch,
-                    use_priorities=True
-                )
-            else:
-                samples = random.sample(
-                    self.feedback_buffer.buffer,
-                    effective_batch
-                )
-                
-            if not samples:
-                print("DEBUG: No samples retrieved.")
-                continue
-                
-            # --- New Batching Logic for Multi-Input Models ---
-            try:
-                # Transpose the list of input_args tuples
-                # Assumes all experiences in the buffer have the same number of input args
-                num_args = len(samples[0].input_args)
-                batch_args = []
-                for i in range(num_args):
-                    # For each argument position, concatenate the tensors from all samples
-                    arg_tensors = [s.input_args[i].to(self.device) for s in samples]
-                    batch_args.append(torch.cat(arg_tensors, dim=0))
-                
-                batch_targets = torch.cat([s.target.to(self.device) for s in samples], dim=0)
+                if self.prioritized_buffer:
+                    samples = self.prioritized_buffer.sample_batch(
+                        effective_batch,
+                        use_priorities=True
+                    )
+                else:
+                    samples = random.sample(
+                        self.feedback_buffer.buffer,
+                        effective_batch
+                    )
+                    
+                if not samples:
+                    print("DEBUG: No samples retrieved.")
+                    continue
+                    
+                # --- New Batching Logic for Multi-Input Models ---
+                try:
+                    # Transpose the list of input_args tuples
+                    # Assumes all experiences in the buffer have the same number of input args
+                    num_args = len(samples[0].input_args)
+                    batch_args = []
+                    for i in range(num_args):
+                        # For each argument position, concatenate the tensors from all samples
+                        arg_tensors = [s.input_args[i].to(self.device) for s in samples]
+                        batch_args.append(torch.cat(arg_tensors, dim=0))
+                    
+                    batch_targets = torch.cat([s.target.to(self.device) for s in samples], dim=0)
 
-            except Exception as e:
-                print(f"DEBUG: Dream Batch Failed: {e}")
-                self.logger.debug(f"Failed to create replay batch, skipping dream step: {e}")
-                continue
+                except Exception as e:
+                    print(f"DEBUG: Dream Batch Failed: {e}")
+                    self.logger.debug(f"Failed to create replay batch, skipping dream step: {e}")
+                    continue
+                    
+                # Call train_step with unpacked arguments
+                # Note: We don't want infinite recursion, so we call a simpler step or just forward/backward manually
+                # But for simplicity in V8.0, we'll just do manual forward/backward here to avoid complexity
+                self.optimizer.zero_grad()
                 
-            # Call train_step with unpacked arguments
-            # Note: We don't want infinite recursion, so we call a simpler step or just forward/backward manually
-            # But for simplicity in V8.0, we'll just do manual forward/backward here to avoid complexity
-            self.optimizer.zero_grad()
-            
-            # [V17] Determine the task_id for this replay batch.
-            # All samples in the batch may come from different tasks,
-            # so we group by task_id and compute scoped loss for each.
-            sample_task_ids = [getattr(s, 'task_id', -1) for s in samples]
-            
-            if isinstance(batch_args, list):
-                outputs = self.model(*batch_args)
-            else:
-                outputs = self.model(batch_args)
+                # [V17] Determine the task_id for this replay batch.
+                # All samples in the batch may come from different tasks,
+                # so we group by task_id and compute scoped loss for each.
+                sample_task_ids = [getattr(s, 'task_id', -1) for s in samples]
                 
-            if hasattr(outputs, 'logits'): logits = outputs[0] if getattr(outputs, 'logits', None) is None else outputs.logits
-            elif isinstance(outputs, tuple): logits = outputs[0]
-            else: logits = outputs
+                if isinstance(batch_args, list):
+                    outputs = self.model(*batch_args)
+                else:
+                    outputs = self.model(batch_args)
+                    
+                if hasattr(outputs, 'logits'): logits = outputs[0] if getattr(outputs, 'logits', None) is None else outputs.logits
+                elif isinstance(outputs, tuple): logits = outputs[0]
+                else: logits = outputs
 
 
-            metrics = {}
-            num_classes_per_task = 10  # Split-CIFAR100
-            
-            # [V17] TASK-SCOPED DREAMING: Compute per-sample task-scoped CE loss
-            # to prevent replay from suppressing other tasks' logits.
-            if logits.shape != batch_targets.shape and logits.dim() > batch_targets.dim() and batch_targets.dim() == 1:
-                if batch_targets.dtype != torch.long:
-                    batch_targets = batch_targets.long()
+                metrics = {}
+                num_classes_per_task = 10  # Split-CIFAR100
                 
-                # Check if all samples share the same task
-                unique_tasks = set(sample_task_ids)
-                if len(unique_tasks) == 1 and -1 not in unique_tasks:
-                    tid = sample_task_ids[0]
-                    if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
-                        s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
-                        loss = F.cross_entropy(logits[:, s:e], batch_targets % num_classes_per_task)
-                    else:
-                        loss = F.cross_entropy(logits, batch_targets)
-                elif -1 not in unique_tasks:
-                    # Mixed-task batch: compute per-sample scoped loss
-                    per_sample_losses = []
-                    for i, tid in enumerate(sample_task_ids):
+                # [V17] TASK-SCOPED DREAMING: Compute per-sample task-scoped CE loss
+                # to prevent replay from suppressing other tasks' logits.
+                if logits.shape != batch_targets.shape and logits.dim() > batch_targets.dim() and batch_targets.dim() == 1:
+                    if batch_targets.dtype != torch.long:
+                        batch_targets = batch_targets.long()
+                    
+                    # Check if all samples share the same task
+                    unique_tasks = set(sample_task_ids)
+                    if len(unique_tasks) == 1 and -1 not in unique_tasks:
+                        tid = sample_task_ids[0]
                         if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
                             s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
-                            per_sample_losses.append(
-                                F.cross_entropy(logits[i:i+1, s:e], (batch_targets[i:i+1] % num_classes_per_task))
-                            )
+                            loss = F.cross_entropy(logits[:, s:e], batch_targets % num_classes_per_task)
                         else:
-                            per_sample_losses.append(
-                                F.cross_entropy(logits[i:i+1], batch_targets[i:i+1])
-                            )
-                    loss = torch.stack(per_sample_losses).mean()
+                            loss = F.cross_entropy(logits, batch_targets)
+                    elif -1 not in unique_tasks:
+                        # Mixed-task batch: compute per-sample scoped loss
+                        per_sample_losses = []
+                        for i, tid in enumerate(sample_task_ids):
+                            if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
+                                s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
+                                per_sample_losses.append(
+                                    F.cross_entropy(logits[i:i+1, s:e], (batch_targets[i:i+1] % num_classes_per_task))
+                                )
+                            else:
+                                per_sample_losses.append(
+                                    F.cross_entropy(logits[i:i+1], batch_targets[i:i+1])
+                                )
+                        loss = torch.stack(per_sample_losses).mean()
+                    else:
+                        # Fallback: no task_id available
+                        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_targets.view(-1))
+                elif logits.shape == batch_targets.shape:
+                    loss = F.mse_loss(logits.float(), batch_targets.float())
                 else:
-                    # Fallback: no task_id available
-                    loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_targets.view(-1))
-            elif logits.shape == batch_targets.shape:
-                loss = F.mse_loss(logits.float(), batch_targets.float())
-            else:
-                loss = F.mse_loss(logits.float(), batch_targets.float())
-            
-            # [V9.0] Auxiliary Loss (Load Balancing, etc.)
-            if hasattr(self.model, 'get_aux_loss'):
-                aux = self.model.get_aux_loss()
-                loss += aux
-                metrics['aux_loss'] = aux.item() if hasattr(aux, 'item') else 0.0
+                    loss = F.mse_loss(logits.float(), batch_targets.float())
+                
+                # [V9.0] Auxiliary Loss (Load Balancing, etc.)
+                if hasattr(self.model, 'get_aux_loss'):
+                    aux = self.model.get_aux_loss()
+                    loss += aux
+                    metrics['aux_loss'] = aux.item() if hasattr(aux, 'item') else 0.0
 
-            # [V9.1] FIX: Add Memory Regularization (EWC/SI) to Dream Loss
-            # Dreaming must respect constraints of previous tasks!
-            reg_loss = torch.tensor(0.0, device=self.device)
-            if self.memory:
-                reg_loss = self.memory.compute_penalty(
-                   adaptive_mode='DREAM',
-                   step_in_mode=0
-                )
-                metrics['reg_loss'] = reg_loss.item()
+                # [V9.1] FIX: Add Memory Regularization (EWC/SI) to Dream Loss
+                # Dreaming must respect constraints of previous tasks!
+                reg_loss = torch.tensor(0.0, device=self.device)
+                if self.memory:
+                    reg_loss = self.memory.compute_penalty(
+                       adaptive_mode='DREAM',
+                       step_in_mode=0
+                    )
+                    metrics['reg_loss'] = reg_loss.item()
 
-            # [V9.2] Apply Expert Balancing during dreaming
-            aux_loss = torch.tensor(0.0, device=self.device)
-            if hasattr(self.model, 'get_aux_loss'):
-                aux_loss = self.model.get_aux_loss() * 0.1
-
-            total_loss.backward()
-            self.optimizer.step()
-            
-            # [V17] Restore sacred weights after dreaming step
-            self._apply_sacred_restoration()
+                # [V17] Total Dreaming Loss aggregation
+                # Experts already handled in 'loss' += aux above, 
+                # but we explicitly calculate any remaining components.
+                total_loss = loss + reg_loss
+                
+                total_loss.backward()
+                self.optimizer.step()
+                
+                # [V17] Restore sacred weights after dreaming step
+                self._apply_sacred_restoration()
+        finally:
+            self._internal_consolidation_mode = False
 
     def learn_from_episodic_memory(self, current_surprise: float, current_loss: float, current_features: Optional[torch.Tensor] = None, k: int = 5):
         """
@@ -1401,38 +1423,49 @@ class AdaptiveFramework(nn.Module):
         )
         
         if not memories: return
-
-        # 2. Construct Batch
+        
+        self.model.train()
+        self._internal_consolidation_mode = True
         try:
-            valid_memories = [m for m in memories if m.y is not None and m.x is not None]
-            if not valid_memories: return
+            # 2. Construct Batch
+            try:
+                valid_memories = [m for m in memories if m.y is not None and m.x is not None]
+                if not valid_memories: return
 
-            # Stack inputs and targets
-            # NOTE: Currently supports single-input models for episodic replay
-            batch_x = torch.stack([m.x.to(self.device) for m in valid_memories])
-            batch_y = torch.stack([m.y.to(self.device) for m in valid_memories])
-            
-            # 3. Replay (Manual Step)
-            self.optimizer.zero_grad()
-            outputs = self.model(batch_x)
-            if hasattr(outputs, 'logits'): logits = outputs.logits
-            elif isinstance(outputs, tuple): logits = outputs[0]
-            else: logits = outputs
-            
-            if logits.shape == batch_y.shape:
-                loss = F.mse_loss(logits.float(), batch_y.float())
-            else:
-                if logits.dim() > batch_y.dim() and batch_y.dim() == 1:
-                     if batch_y.dtype != torch.long: batch_y = batch_y.long()
-                     loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1))
+                # Stack inputs and targets
+                # NOTE: Currently supports single-input models for episodic replay
+                batch_x = torch.stack([m.x.to(self.device) for m in valid_memories])
+                batch_y = torch.stack([m.y.to(self.device) for m in valid_memories])
+                
+                # 3. Replay (Manual Step)
+                self.optimizer.zero_grad()
+                outputs = self.model(batch_x)
+                if hasattr(outputs, 'logits'): logits = outputs.logits
+                elif isinstance(outputs, tuple): logits = outputs[0]
+                else: logits = outputs
+                
+                if logits.shape == batch_y.shape:
+                    loss = F.mse_loss(logits.float(), batch_y.float())
                 else:
-                     loss = F.mse_loss(logits.float(), batch_y.float())
-            
-            loss.backward()
-            self.optimizer.step()
-            
+                    if logits.dim() > batch_y.dim() and batch_y.dim() == 1:
+                         if batch_y.dtype != torch.long: batch_y = batch_y.long()
+                         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1))
+                    else:
+                         loss = F.mse_loss(logits.float(), batch_y.float())
+                
+                loss.backward()
+                self.optimizer.step()
+                
+                # [V17] Post-Replay Restoration
+                self._apply_sacred_restoration()
+                
+            except Exception as e:
+                self.logger.error(f"Replay Batch Error: {e}")
+                
         except Exception as e:
-            self.logger.debug(f"Episodic replay failed: {e}")
+            self.logger.error(f"Episodic Replay Outer Error: {e}")
+        finally:
+            self._internal_consolidation_mode = False
 
     def consolidate_memory(self, **kwargs):
         """Wrapper for Unified Memory consolidation (Backward Compatibility)."""
@@ -1731,12 +1764,10 @@ class AdaptiveFramework(nn.Module):
             for name, param in self.model.named_parameters():
                 mask = self.memory.sacred_mask.get(name, None)
                 if mask is not None and mask.any():
-                    # Framework anchor is typically on CPU
                     anchor = self.memory.anchor.get(name, None)
                     if anchor is not None:
                         mask = mask.to(param.device)
                         anchor = anchor.to(param.device)
-                        # Atomic restoration: force p[mask] = anchor[mask]
                         if anchor.shape != param.shape:
                              anchor = anchor.view_as(param)
                         param.data.copy_(torch.where(mask, anchor, param.data))
