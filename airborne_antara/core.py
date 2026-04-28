@@ -776,8 +776,11 @@ class AdaptiveFramework(nn.Module):
                     with torch.no_grad():
                         if inp.numel() > 0:
                             # Use simple stats to avoid sync overhead
-                            self.telemetry_buffer[layer_idx, 0] = inp.mean()
-                            self.telemetry_buffer[layer_idx, 1] = inp.var(unbiased=False)
+                            # [V17] Hardened: Explicitly detach and move to buffer device
+                            mean_val = inp.mean().detach()
+                            var_val = inp.var(unbiased=False).detach()
+                            self.telemetry_buffer[layer_idx, 0] = mean_val
+                            self.telemetry_buffer[layer_idx, 1] = var_val
                             self.telemetry_buffer[layer_idx, 2] = 0 # Optimized out
                             self.telemetry_buffer[layer_idx, 3] = 0 # Optimized out
 
@@ -865,13 +868,13 @@ class AdaptiveFramework(nn.Module):
                 # Standard training flow
                 log_var, action, log_prob = self.introspection_engine(global_state)
                 self.meta_log_probs.append(log_prob)
-                self.current_modifiers = action.squeeze() # [2]
+                self.current_modifiers = action.detach().squeeze() # [V17] CRITICAL: Detach to break step-to-step graph link
                 affine_modifiers = action.detach()
             else:
                 # Standard inference/evaluation flow (Preserves Sentience)
                 with torch.no_grad():
                     log_var, action, _ = self.introspection_engine(global_state)
-                self.current_modifiers = action.squeeze() # [2]
+                self.current_modifiers = action.detach().squeeze() # [V17] CRITICAL: Detach to break step-to-step graph link
                 affine_modifiers = action.detach()
                 
         except Exception:
@@ -1093,24 +1096,30 @@ class AdaptiveFramework(nn.Module):
             raise RuntimeError("Cortex Critical: total_loss was never computed in train_step")
         
         # 5. Backward Pass with AMP Scaling
-        self.scaler.scale(total_loss).backward(retain_graph=len(self.meta_log_probs) > 0)
+        # [V17] Hardened Sequence: 
+        # We MUST call backward on everything that depends on the graph BEFORE we step the optimizer.
+        # If total_loss and meta_loss are disjoint, retain_graph is not needed.
+        # But we use it if meta_log_probs exists to be safe against accidental links.
+        has_meta = len(self.meta_log_probs) > 0
+        self.scaler.scale(total_loss).backward(retain_graph=has_meta)
 
         # [V8.0] Sentient Meta-Optimization Loop (REINFORCE with Advantage)
-        # CRITICAL: This must happen BEFORE the optimizer step to ensure graph validity.
-        if self.meta_log_probs:
+        if has_meta:
             current_loss_val = loss.item()
             if hasattr(self, '_last_loss_val'):
+                # Advantage-based policy gradient
                 reward = self._last_loss_val - current_loss_val
                 self.reward_baseline = 0.9 * self.reward_baseline + 0.1 * reward
                 advantage = reward - self.reward_baseline
                 
                 # REINFORCE update: Maximize Advantage * LogProb
-                meta_loss = -torch.stack(self.meta_log_probs).mean() * advantage
+                # We use detached advantage to ensure gradients ONLY flow through log_probs
+                meta_loss = -torch.stack(self.meta_log_probs).mean() * float(advantage)
                 
                 # Update meta-params (System 2)
                 self.meta_optimizer.zero_grad()
-                self.scaler.scale(meta_loss).backward() # Scale meta-loss too for safety
-                # Meta-optimizer step will happen after scaling update
+                self.scaler.scale(meta_loss).backward() 
+            
             self._last_loss_val = current_loss_val
         
         # 6. Unscale & Clip
@@ -1400,8 +1409,14 @@ class AdaptiveFramework(nn.Module):
                 # but we explicitly calculate any remaining components.
                 total_loss = loss + reg_loss
                 
-                total_loss.backward()
-                self.optimizer.step()
+                # [V17] Hardened Replay: Use scaler if available
+                if hasattr(self, 'scaler'):
+                    self.scaler.scale(total_loss).backward()
+                    self.scaler.step(self.optimizer)
+                    # We don't call scaler.update() here because it's called once at the end of train_step
+                else:
+                    total_loss.backward()
+                    self.optimizer.step()
                 
                 # [V17] Restore sacred weights after dreaming step
                 self._apply_sacred_restoration()
@@ -1439,22 +1454,29 @@ class AdaptiveFramework(nn.Module):
                 
                 # 3. Replay (Manual Step)
                 self.optimizer.zero_grad()
-                outputs = self.model(batch_x)
-                if hasattr(outputs, 'logits'): logits = outputs.logits
-                elif isinstance(outputs, tuple): logits = outputs[0]
-                else: logits = outputs
                 
-                if logits.shape == batch_y.shape:
-                    loss = F.mse_loss(logits.float(), batch_y.float())
-                else:
-                    if logits.dim() > batch_y.dim() and batch_y.dim() == 1:
-                         if batch_y.dtype != torch.long: batch_y = batch_y.long()
-                         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1))
+                with torch.amp.autocast('cuda', enabled=self.config.use_amp and self.device.type == 'cuda'):
+                    outputs = self.model(batch_x)
+                    if hasattr(outputs, 'logits'): logits = outputs.logits
+                    elif isinstance(outputs, tuple): logits = outputs[0]
+                    else: logits = outputs
+                    
+                    if logits.shape == batch_y.shape:
+                        loss = F.mse_loss(logits.float(), batch_y.float())
                     else:
-                         loss = F.mse_loss(logits.float(), batch_y.float())
+                        if logits.dim() > batch_y.dim() and batch_y.dim() == 1:
+                             if batch_y.dtype != torch.long: batch_y = batch_y.long()
+                             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1))
+                        else:
+                             loss = F.mse_loss(logits.float(), batch_y.float())
                 
-                loss.backward()
-                self.optimizer.step()
+                # [V17] Hardened Episodic Replay: Use scaler
+                if hasattr(self, 'scaler'):
+                    self.scaler.scale(loss).backward()
+                    self.scaler.step(self.optimizer)
+                else:
+                    loss.backward()
+                    self.optimizer.step()
                 
                 # [V17] Post-Replay Restoration
                 self._apply_sacred_restoration()
