@@ -151,10 +151,9 @@ class SparseMoE(nn.Module):
         weights, indices = self.gate(x, task_id=task_id)
         
         with torch.no_grad():
+            # [V26.0] Vectorized usage update
             flat_indices = indices.view(-1)
-            for idx in flat_indices:
-                if idx < self.num_experts:
-                    self.expert_usage[idx] += 1
+            self.expert_usage.index_add_(0, flat_indices, torch.ones_like(flat_indices, dtype=self.expert_usage.dtype))
         
         batch_size = x.size(0)
         final_output = None

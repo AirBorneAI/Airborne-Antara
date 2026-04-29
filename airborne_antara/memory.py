@@ -56,17 +56,27 @@ class OrthogonalProjector:
             
         if activations.size(0) < 2: return
         
-        # 1. Compute PCA (SVD)
-        # Center data
-        mean = activations.mean(dim=0, keepdim=True)
-        X = activations - mean
-        
-        # [V8.2] MEMORY OPTIMIZATION: Move to CPU for SVD/QR to save VRAM
-        # Large matrix operations on GPU trigger OOM on 6GB machines.
-        try:
+        # 1. Prepare Data (CPU Offloading for VRAM safety)
+        with torch.no_grad():
+            mean = activations.mean(dim=0, keepdim=True)
+            X = activations - mean
             X_cpu = X.cpu()
-            _, S, Vh = torch.linalg.svd(X_cpu, full_matrices=False)
-            V = Vh.T # [D, N] or [D, D]
+            D = X_cpu.size(1)
+            N = X_cpu.size(0)
+
+        # [V26.0] TITAN GUARD: Performance-aware subspace estimation
+        # If dimensions are massive (>1024), use randomized PCA to save power/time
+        try:
+            if D > 1024 or N > 2048:
+                # Randomized PCA for high-dimensional efficiency
+                k_rand = min(self.max_basis_size, D, N)
+                # Use k_rand components
+                _, S, V = torch.pca_lowrank(X_cpu, q=k_rand, center=False, niter=2)
+                # V is already [D, k_rand]
+            else:
+                # Standard SVD for precision on small/medium layers
+                _, S, Vh = torch.linalg.svd(X_cpu, full_matrices=False)
+                V = Vh.T # [D, min(N, D)]
             
             # 2. Select Top Components
             energy = torch.cumsum(S ** 2, dim=0)
@@ -329,6 +339,7 @@ class RelationalGraphMemory(nn.Module):
         self.centroids = torch.randn(num_clusters, feature_dim)
         self.clusters = {i: [] for i in range(num_clusters)} # ClusterIdx -> List[NodeIndices]
         self.node_to_cluster = {} # NodeIdx -> ClusterIdx
+        self.feature_matrix = None # [V26.0] Optimized: Matrix of all node features
         self.initialized = False
 
     def add(self, snapshot, feature_vector: torch.Tensor):
@@ -368,18 +379,25 @@ class RelationalGraphMemory(nn.Module):
                     candidate_indices.append(idx)
             
         if candidate_indices:
-            # Vectorized similarity compute on Candidates ONLY
-            candidate_features = torch.stack([self.nodes[i].feature_vector for i in candidate_indices])
+            # [V26.0] Vectorized similarity compute on Candidates ONLY
+            candidate_features = self.feature_matrix[candidate_indices]
             sim = F.cosine_similarity(fv.unsqueeze(0), candidate_features)
             
             # Find nodes above threshold
-            indices = (sim >= self.link_threshold).nonzero(as_tuple=True)[0]
+            mask = sim >= self.link_threshold
+            indices = mask.nonzero(as_tuple=True)[0]
             for idx in indices:
                 target_node_idx = candidate_indices[idx.item()]
                 weight = sim[idx].item()
                 # Bidirectional Link
                 new_node.links.append((target_node_idx, weight))
                 self.nodes[target_node_idx].links.append((new_node_idx, weight))
+        
+        # Update feature matrix
+        if self.feature_matrix is None:
+            self.feature_matrix = fv.unsqueeze(0)
+        else:
+            self.feature_matrix = torch.cat([self.feature_matrix, fv.unsqueeze(0)], dim=0)
         
         # 3. Capacity Management (Prune AFTER adding)
         if len(self.nodes) > self.capacity:
@@ -416,6 +434,12 @@ class RelationalGraphMemory(nn.Module):
                 new_idx = neighbor_idx - 1 if neighbor_idx > removed_idx else neighbor_idx
                 new_links.append((new_idx, weight))
             node.links = new_links
+            
+        # Re-sync feature matrix
+        if self.nodes:
+            self.feature_matrix = torch.stack([node.feature_vector for node in self.nodes])
+        else:
+            self.feature_matrix = None
 
     def retrieve(self, query_vector: torch.Tensor, k: int = 5) -> List[Any]:
         """
@@ -437,7 +461,7 @@ class RelationalGraphMemory(nn.Module):
         if not candidate_indices: return []
         
         # 2. Direct Retrieval on Candidates
-        candidate_features = torch.stack([self.nodes[i].feature_vector for i in candidate_indices])
+        candidate_features = self.feature_matrix[candidate_indices]
         sim = F.cosine_similarity(qv.unsqueeze(0), candidate_features)
         
         # Be careful mapping back to global indices
@@ -610,9 +634,12 @@ class UnifiedMemoryHandler:
                         denom = torch.clamp(denom, min=1e-8) # Safety clamp
                         new_omega = s / denom
                         
-                        # Fuse and clamp
-                        new_omega = torch.nan_to_num(new_omega, nan=0.0, posinf=1e6, neginf=0.0)
-                        self.omega[name] = new_omega.clamp(min=0.0, max=1e6).cpu() # Back to CPU
+                        # Fuse and accumulate (V24 Infinite Horizon)
+                        new_omega = torch.nan_to_num(new_omega, nan=0.0, posinf=1e6, neginf=0.0).clamp(min=0.0, max=1e6).cpu()
+                        if name in self.omega:
+                            self.omega[name].add_(new_omega) # [V26.0] In-place addition
+                        else:
+                            self.omega[name] = new_omega
                         
                         # Reset accumulator on its native device
                         _accum.zero_() 
@@ -953,6 +980,12 @@ class PrioritizedReplayBuffer:
         self.capacity = capacity
         self.temperature = max(temperature, 1e-6)  # safety
         self.buffer = deque() # Manual management for explicit del
+        # [V26.0] Vectorized meta-buffers
+        self.importances = np.zeros(capacity, dtype=np.float32)
+        self.surprises = np.zeros(capacity, dtype=np.float32)
+        self.ages = np.zeros(capacity, dtype=np.int32)
+        self.count = 0
+        self.ptr = 0
 
     def add(self, snapshot, z_score: float = 0.0, importance: float = 1.0):
         """
@@ -978,21 +1011,33 @@ class PrioritizedReplayBuffer:
             return x
 
         snapshot = _to_cpu(snapshot)
-        snapshot.z_score = float(z_score)
-        snapshot.importance = float(importance)
-        snapshot.age_in_steps = 0
-
-        # Age existing memories
-        for s in self.buffer:
-            if hasattr(s, "age_in_steps"):
-                s.age_in_steps += 1
-
-        self.buffer.append(snapshot)
         
-        # Explicit memory management
-        if len(self.buffer) > self.capacity:
-            old_snapshot = self.buffer.popleft()
-            del old_snapshot # Force release
+        # Age existing memories (Vectorized)
+        if self.count > 0:
+            self.ages[:self.count] += 1
+
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(snapshot)
+            self.importances[self.ptr] = float(importance)
+            self.surprises[self.ptr] = float(z_score)
+            self.ages[self.ptr] = 0
+            self.ptr = (self.ptr + 1) % self.capacity
+            self.count += 1
+        else:
+            # Replace oldest (Buffer is deque, but indices must match)
+            # This is tricky with deque. Switching to list for simplicity in V26
+            self.buffer.popleft()
+            self.buffer.append(snapshot)
+            # Deque popleft means we just shift everything in the meta-buffers
+            # Actually, a circular buffer for both would be better.
+            # For V26, we shift the numpy arrays (Fast enough for 10k)
+            self.importances[:-1] = self.importances[1:]
+            self.surprises[:-1] = self.surprises[1:]
+            self.ages[:-1] = self.ages[1:]
+            
+            self.importances[self.capacity-1] = float(importance)
+            self.surprises[self.capacity-1] = float(z_score)
+            self.ages[self.capacity-1] = 0
 
     def sample_batch(self, batch_size: int, use_priorities: bool = True):
         """
@@ -1013,26 +1058,20 @@ class PrioritizedReplayBuffer:
             return random.sample(list(self.buffer), effective_batch)
 
         # -----------------------------
-        # Priority computation
+        # Priority computation (V26.0 Vectorized)
         # -----------------------------
-        probs = []
-        for s in self.buffer:
-            importance = abs(getattr(s, "importance", 0.5))
-            surprise = abs(getattr(s, "z_score", 0.0))
-
-            # Base priority
-            p = importance + surprise
-
-            # Gentle recency bias (bounded, non-dominant)
-            age = getattr(s, "age_in_steps", 0)
-            p += 1.0 / (1.0 + age)
-
-            probs.append(max(0.05, p))  # floor prevents zero-probability
-
-        probs = np.array(probs, dtype=np.float64)
+        imp = np.abs(self.importances[:buffer_size])
+        surp = np.abs(self.surprises[:buffer_size])
+        age = self.ages[:buffer_size]
+        
+        # Base priority
+        p = imp + surp + (1.0 / (1.0 + age))
+        
+        # Floor prevents zero-probability
+        p = np.maximum(0.05, p)
 
         # Temperature scaling
-        probs = probs ** (1.0 / self.temperature)
+        probs = p ** (1.0 / self.temperature)
 
         # Numerical safety
         total = probs.sum()

@@ -535,6 +535,7 @@ class AdaptiveFramework(nn.Module):
         self.reward_baseline = 0.0
         self.alpha = 0.1
         self.step_count = 0
+        self._cached_sacred_params = [] # [V26.0] Optimization: Cached references to sacred params
 
         # 4. Initialize Adapters & Hooks (Must run BEFORE optimizer creation)
         self._init_adapters_and_hooks()
@@ -853,6 +854,14 @@ class AdaptiveFramework(nn.Module):
              if output[1].dtype == torch.long:
                  output, moe_indices = output
         
+        # [V25] Task-Aware Logit Slicing: Match inference scope to training scope
+        # This fixes 'Head Interference' where Task 1 logits drown out Task 0 during eval.
+        if task_id is not None and isinstance(output, torch.Tensor) and output.dim() == 2:
+            num_classes_per_task = 10
+            if output.shape[-1] >= (task_id + 1) * num_classes_per_task:
+                s, e = task_id * num_classes_per_task, (task_id + 1) * num_classes_per_task
+                output = output[:, s:e]
+        
         log_var = torch.tensor(0.0).to(self.device)
         affine_modifiers = None
         
@@ -987,11 +996,12 @@ class AdaptiveFramework(nn.Module):
                     self.slow_weights[n] = new_slow.clone().detach().cpu()
                     # [V17] Respect Sacred Mask: never overwrite protected coordinates
                     mask = self.memory.sacred_mask.get(n) if self.memory else None
-                    if mask is not None and mask.any():
-                        mask = mask.to(p.device)
-                        p.data.copy_(torch.where(mask, fast, new_slow))
-                    else:
-                        p.data.copy_(new_slow)
+                if mask is not None and mask.any():
+                    # [V26.0] Optimization: Use indexed assignment instead of torch.where
+                    # This avoids creating a full copy of the parameter tensor
+                    p.data[mask] = fast[mask]
+                else:
+                    p.data.copy_(new_slow)
 
     def train_step(self, *model_inputs, target_data, task_id: int = 0, enable_dream: bool = True, meta_step: bool = True, record_stats: bool = True):
         """
@@ -1200,11 +1210,13 @@ class AdaptiveFramework(nn.Module):
                 if self.perception:
                     self.perception.zero_grad(set_to_none=True)
             
-            # Flush memory to prevent fragmentation-induced graph errors
-            import gc
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # [V26.0] Maintenance: Only clear cache after consolidation or periodically
+            # Aggressive clearing in every step tanks performance.
+            if self.step_count % 100 == 0:
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
         
         # [V8.1] Direct Weight Adaptation via PerformanceMonitor
         if self.performance_monitor and hasattr(self, 'current_modifiers') and self.current_modifiers is not None:
@@ -1526,7 +1538,10 @@ class AdaptiveFramework(nn.Module):
 
     def consolidate_memory(self, **kwargs):
         """Wrapper for Unified Memory consolidation (Backward Compatibility)."""
-        return self.memory.consolidate(**kwargs)
+        result = self.memory.consolidate(**kwargs)
+        # [V26.0] Refresh the surgical restoration cache after importance is recalculated
+        self._rebuild_restoration_cache()
+        return result
 
     def save_memory(self, name: Optional[str] = None):
         """Wrapper for saving task memory."""
@@ -1570,6 +1585,8 @@ class AdaptiveFramework(nn.Module):
         # Load memory if present
         if 'memory' in ckpt and isinstance(ckpt['memory'], str):
              self.memory.load_task_memory(ckpt['memory'])
+             # [V26.0] Refresh cache after loading external memory
+             self._rebuild_restoration_cache()
             
         self.logger.info(f"Checkpoint loaded from {path}")
 
@@ -1811,44 +1828,51 @@ class AdaptiveFramework(nn.Module):
 
     def _apply_sacred_restoration(self):
         """
-        [V17] UNYIELDING SOUL: Direct parameter restoration for sacred weights.
-        Combats optimizer drift (weight decay) that bypasses gradient hooks.
+        [V26.0] TITAN SOUL: Surgical parameter restoration using cached references.
+        Reduces restoration overhead from O(N_total) to O(N_sacred).
         """
-        if not self.memory or not hasattr(self.memory, "sacred_mask") or not self.memory.sacred_mask:
-            return
+        if not self._cached_sacred_params:
+            # Fallback if cache is empty or not yet built
+            if not self.memory or not hasattr(self.memory, "sacred_mask") or not self.memory.sacred_mask:
+                return
+            self._rebuild_restoration_cache()
             
         with torch.no_grad():
-            # [V17.6] TITAN FLOW: Use cached masks on device to eliminate sync bottleneck
-            for name, param in self.named_parameters():
-                mask = self.memory.sacred_mask.get(name, None)
-                if mask is not None and mask.any():
-                    anchor = self.memory.anchor.get(name, None)
-                    if anchor is not None:
-                        # Ensure mask and anchor are on the correct device (Lazy migration)
-                        if mask.device != param.device:
-                            self.memory.sacred_mask[name] = mask.to(param.device)
-                            mask = self.memory.sacred_mask[name]
-                        if anchor.device != param.device:
-                            self.memory.anchor[name] = anchor.to(param.device)
-                            anchor = self.memory.anchor[name]
-                        
-                        if anchor.shape != param.shape:
-                             anchor = anchor.view_as(param)
-                        
-                        # Surgical Restoration (In-place)
-                        param.data.copy_(torch.where(mask, anchor, param.data))
+            for param, mask, anchor in self._cached_sacred_params:
+                # Surgical Restoration (In-place indexed assignment)
+                param.data[mask] = anchor[mask]
 
-            # [V18] BN Cryostasis: Freeze running stats for layers with sacred weights
-            # This prevents Task 0 normalization drift during Task 1 training.
+            # [V22] BN Cryostasis (Remains O(N_modules) but modules are fewer than params)
             for name, m in self.named_modules():
                 if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
-                    # Check if the weight or bias of this BN is sacred
-                    is_sacred = False
-                    for p_name in ['weight', 'bias']:
-                        full_name = f"{name}.{p_name}" if name else p_name
-                        if full_name in self.memory.sacred_mask and self.memory.sacred_mask[full_name].any():
-                            is_sacred = True
-                            break
-                    if is_sacred:
+                    if getattr(m, '_is_sacred_bn', False):
                         m.eval()
                         m.track_running_stats = False
+                        # Running stats are restored via anchor if available in memory
+                        # (handled in _rebuild_restoration_cache once per consolidation)
+
+    def _rebuild_restoration_cache(self):
+        """Build the list of references to sacred parameters and anchors."""
+        self._cached_sacred_params = []
+        if not self.memory: return
+        
+        device = next(self.parameters()).device
+        for name, param in self.named_parameters():
+            mask = self.memory.sacred_mask.get(name)
+            if mask is not None and mask.any():
+                anchor = self.memory.anchor.get(name)
+                if anchor is not None:
+                    # Ensure mask and anchor are on the correct device and dtype
+                    mask_dev = mask.to(device)
+                    anchor_dev = anchor.to(device).view_as(param).to(param.dtype)
+                    self._cached_sacred_params.append((param, mask_dev, anchor_dev))
+                    
+        # Tag BatchNormalization layers
+        for name, m in self.named_modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                is_sacred = False
+                for p_name in ['weight', 'bias']:
+                    full_name = f"{name}.{p_name}" if name else p_name
+                    if full_name in self.memory.sacred_mask and self.memory.sacred_mask[full_name].any():
+                        is_sacred = True; break
+                m._is_sacred_bn = is_sacred

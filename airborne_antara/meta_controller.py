@@ -65,28 +65,31 @@ class GradientAnalyzer:
         self.gradient_history = deque(maxlen=100)
         
     def analyze(self) -> Dict[str, float]:
-        stats = {
-            'mean_norm': 0.0,
-            'max_norm': 0.0,
-            'variance': 0.0,
-            'sparsity': 0.0,
-        }
+        """[V26.0] Vectorized gradient analysis."""
+        stats = {'mean_norm': 0.0, 'max_norm': 0.0, 'variance': 0.0, 'sparsity': 0.0}
         
-        all_grads = []
+        # 1. Collect all valid norms in a single vectorized pass
+        norms = []
         for param in self.model.parameters():
             if param.grad is not None:
-                grad_norm = param.grad.data.norm(2).item()
-                if np.isfinite(grad_norm):
-                    all_grads.append(grad_norm)
+                norms.append(param.grad.detach().norm(2).view(1))
         
-        if not all_grads:
+        if not norms:
             return stats
-        
-        all_grads = np.array(all_grads)
-        stats['mean_norm'] = float(np.mean(all_grads))
-        stats['max_norm'] = float(np.max(all_grads))
-        stats['variance'] = float(np.var(all_grads))
-        stats['sparsity'] = float(np.sum(all_grads < 1e-6) / len(all_grads))
+            
+        # 2. Vectorized computation
+        with torch.no_grad():
+            all_norms = torch.cat(norms)
+            finite_mask = torch.isfinite(all_norms)
+            all_norms = all_norms[finite_mask]
+            
+            if all_norms.numel() == 0:
+                return stats
+                
+            stats['mean_norm'] = all_norms.mean().item()
+            stats['max_norm'] = all_norms.max().item()
+            stats['variance'] = all_norms.var().item()
+            stats['sparsity'] = (all_norms < 1e-6).float().mean().item()
         
         self.gradient_history.append(stats)
         return stats
@@ -324,15 +327,14 @@ class ReptileOptimizer:
             self._perform_update()
             
     def _clone_weights(self) -> Dict[str, torch.Tensor]:
-        """Deep copy current model weights."""
+        """Deep copy current model weights to CPU."""
         target_model = self.model
         if hasattr(self.model, '_orig_mod'):
             target_model = self.model._orig_mod
             
-        # We clone ALL state (including buffers like running_mean)
-        # to ensure the anchor is a valid snapshot.
+        # [V26.0] CPU Offloading: Anchors stay on CPU to save VRAM
         return {
-            k: v.clone().detach() 
+            k: v.clone().detach().cpu() 
             for k, v in target_model.state_dict().items()
         }
         
@@ -348,36 +350,22 @@ class ReptileOptimizer:
         epsilon = self.config.reptile_learning_rate
         
         with torch.no_grad():
-            for name, anchor_param in self.anchor_weights.items():
-                if name in current_weights:
-                    fast_param = current_weights[name]
-                    
-                    # Reptile Update Rule:
-                    # Only interpolate FLOAT parameters/buffers. 
-                    # Integers (like num_batches_tracked) should be taken from fast weights directly.
-                    if anchor_param.is_floating_point():
-                        new_param = anchor_param + epsilon * (fast_param - anchor_param)
-                        new_state_dict[name] = new_param
-                    else:
-                        new_state_dict[name] = fast_param
-        
-        # Apply updated weights to model
-        with torch.no_grad():
-            # Update Parameters (Weights/Biases)
             for name, param in self.model.named_parameters():
-                if name in new_state_dict:
-                    # [V17] UNYIELDING SOUL: Apply Sacred Mask protection to Reptile updates
+                if name in self.anchor_weights:
+                    anchor = self.anchor_weights[name].to(param.device)
+                    # Interpolated target
+                    target = anchor + epsilon * (param.data - anchor)
+                    
+                    # [V26.0] Vectorized Sacred Mask protection
                     if self.memory and hasattr(self.memory, 'sacred_mask'):
                         mask = self.memory.sacred_mask.get(name, None)
-                        if mask is not None and mask.any():
-                            # Only update parts of the parameter that are NOT sacred
+                        if mask is not None:
                             mask = mask.to(param.device)
-                            diff = new_state_dict[name].to(param.device) - param.data
-                            param.data.add_(diff * (~mask))
+                            # Keep sacred part as it was, interpolate the rest
+                            param.data.copy_(torch.where(mask, param.data, target))
                             continue
-                    
-                    # Normal update if no mask
-                    param.data.copy_(new_state_dict[name])
+                            
+                    param.data.copy_(target)
             
             # Update Buffers (Running Mean/Var) - handled via state_dict load if needed,
             # but usually Reptile keeps buffers from fast path or interpolates.

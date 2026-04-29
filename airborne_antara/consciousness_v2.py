@@ -213,9 +213,15 @@ class EpisodicMemory:
     Memory system that remembers specific experiences.
     """
     
-    def __init__(self, max_episodes: int = 5000):
+    def __init__(self, max_episodes: int = 5000, feature_dim: int = 512):
         self.episodes: List[MemoryEpisode] = []
         self.max_episodes = max_episodes
+        self.feature_dim = feature_dim
+        # [V26.0] Vectorized buffers
+        self.surprises = np.zeros(max_episodes, dtype=np.float32)
+        self.errors = np.zeros(max_episodes, dtype=np.float32)
+        self.feature_matrix = torch.zeros(max_episodes, feature_dim)
+        self.count = 0
         
     def store_episode(self,
                       x: torch.Tensor,
@@ -243,8 +249,23 @@ class EpisodicMemory:
             x=x.detach().cpu() if isinstance(x, torch.Tensor) else None,
             features=features.detach().cpu() if features is not None else None
         )
-        
-        self.episodes.append(episode)
+
+        # Store in buffers (Vectorized)
+        idx = self.count % self.max_episodes
+        self.surprises[idx] = float(surprise)
+        self.errors[idx] = float(error)
+        if features is not None:
+            f_vec = features.float().mean(dim=0).view(-1)
+            if f_vec.size(0) == self.feature_dim:
+                self.feature_matrix[idx] = f_vec.cpu()
+
+        if len(self.episodes) < self.max_episodes:
+            self.episodes.append(episode)
+            self.count += 1
+        else:
+            # Replace oldest (FIFO)
+            self.episodes[idx] = episode
+            self.count += 1
         
         # Forget least relevant memories if full
         if len(self.episodes) > self.max_episodes:
@@ -257,23 +278,30 @@ class EpisodicMemory:
                                   current_error: float,
                                   current_features: Optional[torch.Tensor] = None,
                                   k: int = 10) -> List[MemoryEpisode]:
-        """Retrieve k most relevant memories to current situation."""
+        """[V26.0] Vectorized associative retrieval."""
         if not self.episodes:
             return []
         
-        # FULL SCAN: 5000 items is fast enough in Python (<1ms)
-        # We do not sample anymore to ensure we find the *best* match.
-        candidates = self.episodes
-
-        # Score episodes by relevance
-        scored = [
-            (ep, ep.relevance_score(current_surprise, current_error, current_features))
-            for ep in candidates
-        ]
+        num_avail = len(self.episodes)
         
-        # Return top k
-        top_k = sorted(scored, key=lambda x: x[1], reverse=True)[:k]
-        return [ep for ep, _ in top_k]
+        # 1. Scalar similarities
+        surprise_sims = 1.0 / (1.0 + np.abs(self.surprises[:num_avail] - current_surprise) + 1e-6)
+        error_sims = 1.0 / (1.0 + np.abs(self.errors[:num_avail] - current_error) + 1e-6)
+        
+        # 2. Feature similarity
+        content_sims = np.zeros(num_avail)
+        if current_features is not None:
+            q_feat = current_features.float().mean(dim=0).view(1, -1).cpu()
+            if q_feat.size(1) == self.feature_dim:
+                sims = F.cosine_similarity(q_feat, self.feature_matrix[:num_avail])
+                content_sims = ((sims.numpy() + 1) / 2)
+        
+        # 3. Combined Score
+        scores = 0.7 * content_sims + 0.2 * surprise_sims + 0.1 * error_sims
+        
+        # 4. Top-K
+        top_indices = np.argsort(scores)[-k:][::-1]
+        return [self.episodes[i] for i in top_indices]
     
     def get_lesson_learned(self, 
                           memories: List[MemoryEpisode]) -> Dict[str, Any]:
@@ -303,13 +331,20 @@ class SelfModel:
         self.capability_scores = {}  # Task type -> capability score (0-1)
         self.learning_speed_by_task = {}  # Task -> learning speed
         self.task_fingerprints = {} # Task -> Tensor fingerprint
+        self.task_fingerprint_matrix = None # [V26.0] Optimized: Matrix of all fingerprints
+        self.task_ids = [] # List of task IDs in matrix order
         
     def update_capability(self, task_id: str, accuracy: float, learning_speed: float, fingerprint: Optional[torch.Tensor] = None):
         """Update understanding of capability in a task."""
         self.capability_scores[task_id] = accuracy
         self.learning_speed_by_task[task_id] = learning_speed
         if fingerprint is not None:
-            self.task_fingerprints[task_id] = fingerprint.detach().cpu()
+            fp_cpu = fingerprint.detach().cpu().view(-1).float()
+            self.task_fingerprints[task_id] = fp_cpu
+            
+            # Rebuild matrix
+            self.task_ids = list(self.task_fingerprints.keys())
+            self.task_fingerprint_matrix = torch.stack([self.task_fingerprints[tid] for tid in self.task_ids])
     
     def assess_readiness(self, task_id: str, fingerprint: Optional[torch.Tensor] = None) -> float:
         """How ready is the model for a new task?"""
@@ -319,28 +354,20 @@ class SelfModel:
             learning_speed = self.learning_speed_by_task.get(task_id, 0.5)
             return 0.7 * capability + 0.3 * learning_speed
             
-        # 2. Fingerprint Similarity (Generalization)
-        if fingerprint is not None and self.task_fingerprints:
+        # 2. Fingerprint Similarity (Generalization) [V26.0 Vectorized]
+        if fingerprint is not None and self.task_fingerprint_matrix is not None:
             try:
-                # Calculate similarity with all known tasks
-                similarities = []
-                target_fp = fingerprint.view(-1).float()
+                target_fp = fingerprint.view(1, -1).float().cpu()
+                sims = F.cosine_similarity(target_fp, self.task_fingerprint_matrix)
                 
-                for known_id, known_fp in self.task_fingerprints.items():
-                    known_fp_flat = known_fp.view(-1).float().to(target_fp.device)
-                    sim = F.cosine_similarity(target_fp.unsqueeze(0), known_fp_flat.unsqueeze(0)).item()
-                    similarities.append((known_id, sim))
+                # Get Top-3
+                vals, idxs = torch.topk(sims, k=min(3, sims.size(0)))
                 
-                # Sort by similarity
-                similarities.sort(key=lambda x: x[1], reverse=True)
-                
-                # Weighted average of top-3 similar tasks
-                top_k = similarities[:3]
-                total_weight = sum(max(0, s[1]) for s in top_k) + 1e-6
-                
+                total_weight = vals.clamp(min=0).sum() + 1e-6
                 weighted_score = 0.0
-                for known_id, sim in top_k:
-                    weight = max(0, sim) / total_weight
+                for i in range(vals.size(0)):
+                    weight = max(0, vals[i].item()) / total_weight
+                    known_id = self.task_ids[idxs[i].item()]
                     known_score = self.capability_scores.get(known_id, 0.5)
                     weighted_score += weight * known_score
                     
@@ -370,19 +397,15 @@ class SelfModel:
             # 1. Readiness (0.0 to 1.0)
             readiness = self.assess_readiness(task_id, fingerprint)
             
-            # 2. Curiosity (Novelty)
+            # 2. Curiosity (Novelty) [V26.0 Vectorized]
             # Calculate distance to nearest known task
             min_dist = 1.0
-            if self.task_fingerprints:
-                target_fp = fingerprint.view(-1).float()
-                dists = []
-                for known_fp in self.task_fingerprints.values():
-                    known_fp_flat = known_fp.view(-1).float().to(target_fp.device)
-                    # Cosine distance = 1 - similarity
-                    dist = 1.0 - F.cosine_similarity(target_fp.unsqueeze(0), known_fp_flat.unsqueeze(0)).item()
-                    dists.append(max(0, dist))
-                if dists:
-                    min_dist = min(dists)
+            if self.task_fingerprint_matrix is not None:
+                target_fp = fingerprint.view(1, -1).float().cpu()
+                sims = F.cosine_similarity(target_fp, self.task_fingerprint_matrix)
+                # Distance = 1 - max_similarity
+                max_sim = sims.max().item()
+                min_dist = max(0, 1.0 - max_sim)
             
             # Curiosity is high if the task is different from what we know
             curiosity = min_dist 
