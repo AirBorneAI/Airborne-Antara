@@ -993,15 +993,15 @@ class AdaptiveFramework(nn.Module):
                     fast = p.data
                     slow = self.slow_weights[n].to(p.device)
                     new_slow = slow + self.lookahead_alpha * (fast - slow)
-                    self.slow_weights[n] = new_slow.clone().detach().cpu()
+                    
                     # [V17] Respect Sacred Mask: never overwrite protected coordinates
                     mask = self.memory.sacred_mask.get(n) if self.memory else None
-                if mask is not None and mask.any():
-                    # [V26.0] Optimization: Use indexed assignment instead of torch.where
-                    # This avoids creating a full copy of the parameter tensor
-                    p.data[mask] = fast[mask]
-                else:
+                    if mask is not None and mask.any():
+                        mask = mask.to(p.device)
+                        new_slow = torch.where(mask, fast, new_slow)
+                    
                     p.data.copy_(new_slow)
+                    self.slow_weights[n] = new_slow.clone().detach().cpu()
 
     def train_step(self, *model_inputs, target_data, task_id: int = 0, enable_dream: bool = True, meta_step: bool = True, record_stats: bool = True):
         """

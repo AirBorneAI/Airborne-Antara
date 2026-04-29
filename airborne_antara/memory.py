@@ -545,9 +545,10 @@ class UnifiedMemoryHandler:
         for model in self.models:
             for n, p in model.named_parameters():
                 if p.requires_grad:
-                    self.omega_accum[n] = torch.zeros_like(p).detach().cpu()
-                    self.omega[n] = torch.zeros_like(p).detach().cpu()
-                    self.anchor[n] = p.clone().detach().cpu()
+                    # [V26.0] Initialize on parameter device for maximum performance
+                    self.omega_accum[n] = torch.zeros_like(p).detach()
+                    self.omega[n] = torch.zeros_like(p).detach()
+                    self.anchor[n] = p.clone().detach().cpu() # Keep anchor on CPU to save VRAM
                     # [V9.4] CAS Protocol: Sacred Core Masks (CPU-side)
                     self.sacred_mask[n] = torch.zeros_like(p).detach().bool().cpu()
         self.saturation_level = 0.0 # Percentage of sacred weights
@@ -597,7 +598,7 @@ class UnifiedMemoryHandler:
                             g = p.grad.data.detach()
                             # [V17.6] TITAN FLOW: Accumulate importance on the same device as the parameter
                             if name not in self.omega_accum:
-                                self.omega_accum[name] = torch.zeros_like(p).detach()
+                                self.omega_accum[name] = torch.zeros_like(p).detach().to(p.device)
                             self.omega_accum[name] += (-g * delta)
         except Exception:
             pass
