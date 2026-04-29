@@ -326,6 +326,12 @@ class ReptileOptimizer:
         # 2. Check interval
         if self.step_counter % self.config.reptile_update_interval == 0:
             self._perform_update()
+
+    def to(self, device):
+        """[V26.4] Device Affinity: Move anchor weights."""
+        if self.anchor_weights:
+            self.anchor_weights = {k: v.to(device) for k, v in self.anchor_weights.items()}
+        return self
             
     def _clone_weights(self) -> Dict[str, torch.Tensor]:
         """Deep copy current model weights to CPU."""
@@ -436,6 +442,13 @@ class MetaController(nn.Module):
         
         self.step_count += 1
         return metrics
+
+    def to(self, device):
+        """[V26.4] Device Affinity: Propagate to sub-components."""
+        super().to(device)
+        if hasattr(self, 'reptile'):
+            self.reptile.to(device)
+        return self
     
     def get_summary(self) -> Dict[str, Any]:
         return {

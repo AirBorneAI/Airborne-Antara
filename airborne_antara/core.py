@@ -621,10 +621,15 @@ class AdaptiveFramework(nn.Module):
         self.logger.info("Airborne-Antara Framework Initialized (V9.4 Eternal Edition)")
 
     def to(self, device=None, *args, **kwargs):
-        """Override to ensure internal caches are rebuilt on the new device."""
+        """Override to ensure internal caches and weights are rebuilt on the new device."""
         if device is not None:
             self.device = torch.device(device)
         super().to(device, *args, **kwargs)
+        
+        # [V26.4] Device Affinity: Move slow weights
+        if hasattr(self, 'slow_weights') and self.slow_weights:
+            self.slow_weights = {k: v.to(self.device) for k, v in self.slow_weights.items()}
+            
         # Rebuild caches after migration
         self._rebuild_restoration_cache()
         return self
