@@ -329,13 +329,13 @@ class ReptileOptimizer:
             
     def _clone_weights(self) -> Dict[str, torch.Tensor]:
         """Deep copy current model weights to CPU."""
+        """Deep copy current model weights."""
         target_model = self.model
         if hasattr(self.model, '_orig_mod'):
             target_model = self.model._orig_mod
             
-        # [V26.0] CPU Offloading: Anchors stay on CPU to save VRAM
         return {
-            k: v.clone().detach().cpu() 
+            k: v.clone().detach() 
             for k, v in target_model.state_dict().items()
         }
         
@@ -353,15 +353,14 @@ class ReptileOptimizer:
         with torch.no_grad():
             for name, param in self.model.named_parameters():
                 if name in self.anchor_weights:
-                    anchor = self.anchor_weights[name].to(param.device)
+                    anchor = self.anchor_weights[name]
                     # Interpolated target
                     target = anchor + epsilon * (param.data - anchor)
                     
-                    # [V26.0] Vectorized Sacred Mask protection
+                    # [V26.3] Pure Device-Local Sacred Mask protection
                     if self.memory and hasattr(self.memory, 'sacred_mask'):
                         mask = self.memory.sacred_mask.get(name, None)
                         if mask is not None:
-                            mask = mask.to(param.device)
                             # Keep sacred part as it was, interpolate the rest
                             param.data.copy_(torch.where(mask, param.data, target))
                             continue

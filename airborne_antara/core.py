@@ -604,7 +604,9 @@ class AdaptiveFramework(nn.Module):
             self.lookahead_k = getattr(config, 'lookahead_k', 5)
             self.lookahead_alpha = getattr(config, 'lookahead_alpha', 0.5)
             self.lookahead_step = 0
-            self.slow_weights = {n: p.data.clone().detach() for n, p in self.model.named_parameters() if p.requires_grad}
+            self.slow_weights = {n: p.data.clone().detach() 
+                                 for n, p in self.model.named_parameters() 
+                                 if p.requires_grad}
 
         # [V9.4] Autonomous Regime Awareness
         self._perform_self_assessment()
@@ -1006,7 +1008,7 @@ class AdaptiveFramework(nn.Module):
                     fast = p.data
                     
                     # [V26.2] Strict Device Casting for Slow Weights
-                    slow = self.slow_weights[n].to(dev)
+                    slow = self.slow_weights[n]
                     alpha = float(getattr(self, 'lookahead_alpha', 0.5))
                     
                     new_slow = slow + alpha * (fast - slow)
@@ -1014,14 +1016,11 @@ class AdaptiveFramework(nn.Module):
                     # [V17] Respect Sacred Mask: never overwrite protected coordinates
                     mask = self.memory.sacred_mask.get(n) if getattr(self, 'memory', None) else None
                     if mask is not None:
-                        # Move mask to target device first before calling .any()
-                        # in case of any weird implicit torch conversions.
-                        mask_dev = mask.to(dev)
-                        if mask_dev.any():
-                            new_slow = torch.where(mask_dev, fast, new_slow)
+                        if mask.any():
+                            new_slow = torch.where(mask, fast, new_slow)
                     
                     p.data.copy_(new_slow)
-                    self.slow_weights[n] = new_slow.detach().cpu()
+                    self.slow_weights[n] = new_slow.detach()
 
     def train_step(self, *model_inputs, target_data, task_id: int = 0, enable_dream: bool = True, meta_step: bool = True, record_stats: bool = True):
         """
@@ -1883,10 +1882,8 @@ class AdaptiveFramework(nn.Module):
             if mask is not None and mask.any():
                 anchor = self.memory.anchor.get(name)
                 if anchor is not None:
-                    # Ensure mask and anchor are on the correct device and dtype
-                    mask_dev = mask.to(device)
-                    anchor_dev = anchor.to(device).view_as(param).to(param.dtype)
-                    self._cached_sacred_params.append((param, mask_dev, anchor_dev))
+                    # [V26.3] Device Affinity: No transfers
+                    self._cached_sacred_params.append((param, mask, anchor))
                     
         # Tag BatchNormalization layers
         for name, m in self.named_modules():

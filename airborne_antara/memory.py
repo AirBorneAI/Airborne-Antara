@@ -545,12 +545,12 @@ class UnifiedMemoryHandler:
         for model in self.models:
             for n, p in model.named_parameters():
                 if p.requires_grad:
-                    # [V26.0] Initialize on CPU for maximum VRAM savings
-                    self.omega_accum[n] = torch.zeros_like(p).detach().cpu()
-                    self.omega[n] = torch.zeros_like(p).detach().cpu()
-                    self.anchor[n] = p.clone().detach().cpu() # Keep anchor on CPU to save VRAM
-                    # [V9.4] CAS Protocol: Sacred Core Masks (CPU-side)
-                    self.sacred_mask[n] = torch.zeros_like(p).detach().bool().cpu()
+                    # [V26.3] Device Affinity: Keep memory on the parameter's device
+                    self.omega_accum[n] = torch.zeros_like(p).detach()
+                    self.omega[n] = torch.zeros_like(p).detach()
+                    self.anchor[n] = p.clone().detach() 
+                    # [V9.4] CAS Protocol: Sacred Core Masks
+                    self.sacred_mask[n] = torch.zeros_like(p).detach().bool()
         self.saturation_level = 0.0 # Percentage of sacred weights
 
         # EWC state
@@ -581,7 +581,7 @@ class UnifiedMemoryHandler:
         for model in self.models:
             for n, p in model.named_parameters():
                 if p.requires_grad:
-                    results[n] = p.data.clone().detach().cpu()
+                    results[n] = p.data.clone().detach()
         return results
     
     def accumulate_path(self, param_before: Dict[str, torch.Tensor]) -> None:
@@ -596,16 +596,11 @@ class UnifiedMemoryHandler:
                         if name in param_before and p.grad is not None:
                             delta = (p.data - param_before[name].to(p.device)).detach()
                             g = p.grad.data.detach()
-                            # [V17.6] TITAN FLOW: Accumulate importance on the same device as the parameter
-                            if name not in self.omega_accum:
-                                self.omega_accum[name] = torch.zeros_like(p).detach().to(p.device)
                             
-                            # [V26.2] Guarantee `omega_accum` is on the same device.
-                            # Since it might have been initialized on CPU in __init__.
-                            if self.omega_accum[name].device != p.device:
-                                self.omega_accum[name] = self.omega_accum[name].to(p.device)
-                                
-                            self.omega_accum[name] += (-g * delta)
+                            # [V26.3] Pure Device-Local Accumulation
+                            if name not in self.omega_accum:
+                                self.omega_accum[name] = torch.zeros_like(p).detach()
+                            self.omega_accum[name].add_(-g * delta)
         except Exception:
             pass
     
@@ -617,9 +612,6 @@ class UnifiedMemoryHandler:
                     **kwargs) -> None:
         """
         Consolidate importance.
-        SI: Computes omega from path integrals.
-        EWC: Computes Fisher from replay buffer (Vectorized).
-        OGD: Updates subspaces from replay buffer.
         """
         self.consolidation_counter += 1
         self.logger.info(f"🧠 Consolidating Memory (Step {current_step}, Mode {mode})...")
@@ -631,26 +623,25 @@ class UnifiedMemoryHandler:
                     for name, p in model.named_parameters():
                         if not p.requires_grad: continue
                         
-                        # [V17.6 Fix] Handle device-resident accumulators
-                        _accum = self.omega_accum.get(name, torch.zeros_like(p).cpu())
-                        s = _accum.to(p.device)
-                        anchor = self.anchor.get(name, p.clone().detach().cpu()).to(p.device)
+                        _accum = self.omega_accum.get(name, torch.zeros_like(p))
+                        s = _accum
+                        anchor = self.anchor.get(name, p.clone().detach())
                         
                         # Damping + Epsilon to prevent NaN
                         denom = (p.data - anchor).pow(2) + self.si_xi
-                        denom = torch.clamp(denom, min=1e-8) # Safety clamp
+                        denom = torch.clamp(denom, min=1e-8)
                         new_omega = s / denom
                         
-                        # Fuse and accumulate (V24 Infinite Horizon)
+                        # Fuse and accumulate
                         new_omega = torch.nan_to_num(new_omega, nan=0.0, posinf=1e6, neginf=0.0).clamp(min=0.0, max=1e6)
                         if name in self.omega:
-                            self.omega[name].add_(new_omega.to(self.omega[name].device)) # [V26.0] In-place addition
+                            self.omega[name].add_(new_omega)
                         else:
-                            self.omega[name] = new_omega.cpu()
+                            self.omega[name] = new_omega
                         
-                        # Reset accumulator on its native device
+                        # Reset for next task/window
+                        self.anchor[name] = p.data.clone().detach()
                         _accum.zero_() 
-                        self.anchor[name] = p.data.clone().detach().cpu() # New anchor on CPU
         
         # 2. Consolidate EWC (Requires GRAD for backward pass)
         if self.method in ['ewc', 'hybrid'] and feedback_buffer is not None:
@@ -676,23 +667,19 @@ class UnifiedMemoryHandler:
                 for name, p in model.named_parameters():
                     if not p.requires_grad: continue
                     
-                    # SI metrics are on CPU by default in V9.4
-                    imp = self.omega.get(name, torch.zeros_like(p).cpu()).to('cpu')
-                    # EWC metrics might be on GPU, move to CPU
+                    imp = self.omega.get(name, torch.zeros_like(p))
                     if name in self.fisher_dict:
-                        imp = imp + self.fisher_dict[name].to('cpu')
+                        imp = imp + self.fisher_dict[name]
                     
                     all_importances.append(imp.view(-1))
             
             if not all_importances: return
             
-            # [V9.4 OPTIMIZATION] Perform global thresholding on CPU to save VRAM
             flat_imp = torch.cat(all_importances)
             num_total = flat_imp.numel()
             k = int(num_total * top_k_ratio)
             
             if k > 0:
-                # Find threshold for top K%
                 threshold = torch.topk(flat_imp, k).values[-1]
                 
                 total_sacred = 0
@@ -700,13 +687,13 @@ class UnifiedMemoryHandler:
                     for name, p in model.named_parameters():
                         if not p.requires_grad: continue
                         
-                        imp = self.omega.get(name, torch.zeros_like(p).cpu()).to('cpu')
+                        imp = self.omega.get(name, torch.zeros_like(p))
                         if name in self.fisher_dict:
-                            imp = imp + self.fisher_dict[name].to('cpu')
+                            imp = imp + self.fisher_dict[name]
                         
                         # Update Mask: Keep existing sacred + new high-importance
-                        new_sacred = (imp >= threshold).cpu()
-                        self.sacred_mask[name] = self.sacred_mask.get(name, torch.zeros_like(p).cpu().bool()) | new_sacred
+                        new_sacred = (imp >= threshold)
+                        self.sacred_mask[name] = self.sacred_mask.get(name, torch.zeros_like(p).bool()) | new_sacred
                         total_sacred += self.sacred_mask[name].sum().item()
                 
                 self.saturation_level = total_sacred / num_total
@@ -718,24 +705,18 @@ class UnifiedMemoryHandler:
         if not feedback_buffer.buffer:
             return
             
-        # 1. Set Anchor
         self.opt_param_dict = {
             n: p.clone().detach() 
             for n, p in self.model.named_parameters() 
             if p.requires_grad
         }
         
-        # 2. Prepare Fisher Accumulators
         fisher = {n: torch.zeros_like(p) for n, p in self.model.named_parameters() if p.requires_grad}
-        
-        # 3. Collect Valid Samples
         samples = list(feedback_buffer.buffer)[-sample_limit:]
         
-        # 4. Vectorized Loop
-        self.model.train() # Need grads
+        self.model.train() 
         device = next(self.model.parameters()).device
         
-        # Process in batches
         for i in range(0, len(samples), batch_size):
             batch_samples = samples[i:i+batch_size]
             if not batch_samples: continue
@@ -758,7 +739,6 @@ class UnifiedMemoryHandler:
             if hasattr(output, 'logits'): output = output.logits
             elif isinstance(output, tuple): output = output[0]
             
-            # FAST APPROXIMATION (Online EWC)
             is_classification = output.dim() > batch_targets.dim() and batch_targets.dim() == 1 and output.size(0) == batch_targets.size(0)
             if is_classification:
                 if batch_targets.dtype != torch.long: batch_targets = batch_targets.long()
@@ -772,7 +752,6 @@ class UnifiedMemoryHandler:
                 if param.grad is not None:
                     fisher[name] += (param.grad.data ** 2) * len(batch_samples)
         
-        # 5. Normalize
         if len(samples) > 0:
             for name in fisher:
                 fisher[name] /= len(samples)
@@ -782,7 +761,7 @@ class UnifiedMemoryHandler:
 
     def _consolidate_ogd_subspaces(self, feedback_buffer, sample_limit: int = 100, batch_size: int = 20):
         """
-        Compute subspaces for OGD from replay buffer with batching for VRAM safety.
+        Compute subspaces for OGD from replay buffer.
         """
         if not feedback_buffer.buffer: return
         
@@ -795,14 +774,12 @@ class UnifiedMemoryHandler:
             def hook(model, input, output):
                 if isinstance(input[0], torch.Tensor):
                     if name not in activations: activations[name] = []
-                    # Move to CPU immediately to keep GPU clear
-                    inp = input[0].detach().cpu()
+                    inp = input[0].detach()
                     if inp.dim() > 2: inp = inp.view(inp.size(0), -1)
                     activations[name].append(inp)
             return hook
             
         hooks = []
-        # OGD focuses on the primary backbone (models[0])
         for name, mod in self.models[0].named_modules():
             if isinstance(mod, nn.Linear):
                 hooks.append(mod.register_forward_hook(get_activation(name)))
@@ -810,7 +787,6 @@ class UnifiedMemoryHandler:
         # 2. Run Forward Pass in controlled batches
         self.models[0].eval()
         
-        # [V8.3] Surgical: Activate internal mode to bypass expensive cognitive loops
         orig_internal_mode = getattr(self.models[0], '_internal_consolidation_mode', False)
         if hasattr(self.models[0], '_internal_consolidation_mode'):
             self.models[0]._internal_consolidation_mode = True
@@ -828,7 +804,6 @@ class UnifiedMemoryHandler:
                 with torch.no_grad():
                     self.models[0](*batch_args)
                 
-                # [V8.3] Hardened: Deep maintenance during consolidation batch
                 if hasattr(self.models[0], 'clear_cognitive_buffers'):
                     self.models[0].clear_cognitive_buffers()
                 elif device.type == 'cuda':
@@ -836,7 +811,7 @@ class UnifiedMemoryHandler:
             
             # 3. Update Projector Subspaces
             for name, acts in activations.items():
-                full_act = torch.cat(acts, dim=0) # [N, D] on CPU
+                full_act = torch.cat(acts, dim=0)
                 self.projector.update_subspace(name, full_act)
                 del full_act
                 
@@ -867,12 +842,7 @@ class UnifiedMemoryHandler:
             for model in self.models:
                 for name, p in model.named_parameters():
                     if name in self.omega:
-                        # Move importance and anchor to GPU for calculation
-                        omega = self.omega[name].to(p.device)
-                        anchor = self.anchor.get(name)
-                        if anchor is not None:
-                            anchor = anchor.to(p.device)
-                            loss += (omega * (p - anchor).pow(2)).sum()
+                        loss += (self.omega[name] * (p - self.anchor[name]).pow(2)).sum()
             loss *= (self.si_lambda * lamb)
 
         # EWC Penalty
@@ -883,8 +853,7 @@ class UnifiedMemoryHandler:
                     if name in self.fisher_dict:
                         anchor = self.opt_param_dict.get(name)
                         if anchor is not None:
-                            anchor = anchor.to(p.device)
-                            ewc_loss += (self.fisher_dict[name].to(p.device) * (p - anchor).pow(2)).sum()
+                            ewc_loss += (self.fisher_dict[name] * (p - anchor).pow(2)).sum()
             loss += ewc_loss * (self.ewc_lambda * lamb)
 
         return loss
