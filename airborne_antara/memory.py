@@ -545,9 +545,9 @@ class UnifiedMemoryHandler:
         for model in self.models:
             for n, p in model.named_parameters():
                 if p.requires_grad:
-                    # [V26.0] Initialize on parameter device for maximum performance
-                    self.omega_accum[n] = torch.zeros_like(p).detach()
-                    self.omega[n] = torch.zeros_like(p).detach()
+                    # [V26.0] Initialize on CPU for maximum VRAM savings
+                    self.omega_accum[n] = torch.zeros_like(p).detach().cpu()
+                    self.omega[n] = torch.zeros_like(p).detach().cpu()
                     self.anchor[n] = p.clone().detach().cpu() # Keep anchor on CPU to save VRAM
                     # [V9.4] CAS Protocol: Sacred Core Masks (CPU-side)
                     self.sacred_mask[n] = torch.zeros_like(p).detach().bool().cpu()
@@ -599,6 +599,12 @@ class UnifiedMemoryHandler:
                             # [V17.6] TITAN FLOW: Accumulate importance on the same device as the parameter
                             if name not in self.omega_accum:
                                 self.omega_accum[name] = torch.zeros_like(p).detach().to(p.device)
+                            
+                            # [V26.2] Guarantee `omega_accum` is on the same device.
+                            # Since it might have been initialized on CPU in __init__.
+                            if self.omega_accum[name].device != p.device:
+                                self.omega_accum[name] = self.omega_accum[name].to(p.device)
+                                
                             self.omega_accum[name] += (-g * delta)
         except Exception:
             pass
@@ -636,11 +642,11 @@ class UnifiedMemoryHandler:
                         new_omega = s / denom
                         
                         # Fuse and accumulate (V24 Infinite Horizon)
-                        new_omega = torch.nan_to_num(new_omega, nan=0.0, posinf=1e6, neginf=0.0).clamp(min=0.0, max=1e6).cpu()
+                        new_omega = torch.nan_to_num(new_omega, nan=0.0, posinf=1e6, neginf=0.0).clamp(min=0.0, max=1e6)
                         if name in self.omega:
-                            self.omega[name].add_(new_omega) # [V26.0] In-place addition
+                            self.omega[name].add_(new_omega.to(self.omega[name].device)) # [V26.0] In-place addition
                         else:
-                            self.omega[name] = new_omega
+                            self.omega[name] = new_omega.cpu()
                         
                         # Reset accumulator on its native device
                         _accum.zero_() 
@@ -671,10 +677,10 @@ class UnifiedMemoryHandler:
                     if not p.requires_grad: continue
                     
                     # SI metrics are on CPU by default in V9.4
-                    imp = self.omega.get(name, torch.zeros_like(p).cpu())
+                    imp = self.omega.get(name, torch.zeros_like(p).cpu()).to('cpu')
                     # EWC metrics might be on GPU, move to CPU
                     if name in self.fisher_dict:
-                        imp = imp + self.fisher_dict[name].cpu()
+                        imp = imp + self.fisher_dict[name].to('cpu')
                     
                     all_importances.append(imp.view(-1))
             
@@ -694,9 +700,9 @@ class UnifiedMemoryHandler:
                     for name, p in model.named_parameters():
                         if not p.requires_grad: continue
                         
-                        imp = self.omega.get(name, torch.zeros_like(p).cpu())
+                        imp = self.omega.get(name, torch.zeros_like(p).cpu()).to('cpu')
                         if name in self.fisher_dict:
-                            imp = imp + self.fisher_dict[name].cpu()
+                            imp = imp + self.fisher_dict[name].to('cpu')
                         
                         # Update Mask: Keep existing sacred + new high-importance
                         new_sacred = (imp >= threshold).cpu()

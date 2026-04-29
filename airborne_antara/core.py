@@ -1002,19 +1002,26 @@ class AdaptiveFramework(nn.Module):
         if self.lookahead_step % self.lookahead_k == 0:
             for n, p in self.model.named_parameters():
                 if p.requires_grad and n in self.slow_weights:
-                    # slow = slow + alpha * (fast - slow)
+                    dev = p.device
                     fast = p.data
-                    slow = self.slow_weights[n].to(p.device)
-                    new_slow = slow + self.lookahead_alpha * (fast - slow)
+                    
+                    # [V26.2] Strict Device Casting for Slow Weights
+                    slow = self.slow_weights[n].to(dev)
+                    alpha = float(getattr(self, 'lookahead_alpha', 0.5))
+                    
+                    new_slow = slow + alpha * (fast - slow)
                     
                     # [V17] Respect Sacred Mask: never overwrite protected coordinates
-                    mask = self.memory.sacred_mask.get(n) if self.memory else None
-                    if mask is not None and mask.any():
-                        mask = mask.to(p.device)
-                        new_slow = torch.where(mask, fast, new_slow)
+                    mask = self.memory.sacred_mask.get(n) if getattr(self, 'memory', None) else None
+                    if mask is not None:
+                        # Move mask to target device first before calling .any()
+                        # in case of any weird implicit torch conversions.
+                        mask_dev = mask.to(dev)
+                        if mask_dev.any():
+                            new_slow = torch.where(mask_dev, fast, new_slow)
                     
                     p.data.copy_(new_slow)
-                    self.slow_weights[n] = new_slow.clone().detach().cpu()
+                    self.slow_weights[n] = new_slow.detach().cpu()
 
     def train_step(self, *model_inputs, target_data, task_id: int = 0, enable_dream: bool = True, meta_step: bool = True, record_stats: bool = True):
         """
