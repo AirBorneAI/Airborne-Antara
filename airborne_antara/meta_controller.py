@@ -127,7 +127,7 @@ class LearnedOptimizerPolicy(nn.Module):
 
 # ==================== ROBUST LR SCHEDULER ====================
 
-class DynamicLearningRateScheduler:
+class DynamicLearningRateScheduler(nn.Module):
     """
     Statistically Adaptive Scheduler (No Magic Numbers).
     Uses Z-Scores to detect anomalies relative to the model's own history.
@@ -135,6 +135,7 @@ class DynamicLearningRateScheduler:
     """
     
     def __init__(self, optimizer, config):
+        super().__init__()
         self.optimizer = optimizer
         self.config = config
         self.current_lr = config.base_lr
@@ -380,7 +381,7 @@ class ReptileOptimizer:
 
 # ==================== META-CONTROLLER ====================
 
-class MetaController:
+class MetaController(nn.Module):
     """
     Orchestrates the optimization cycle using Reptile logic.
     """
@@ -388,6 +389,7 @@ class MetaController:
     def __init__(self, 
                  framework: Any, 
                  config: Optional[MetaControllerConfig] = None):
+        super().__init__()
         if config is None:
             config = MetaControllerConfig()
         

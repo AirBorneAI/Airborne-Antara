@@ -524,6 +524,9 @@ class RecursiveGlobalWorkspace(nn.Module):
         inputs: [B, N, D] (Sensory information)
         thinking_steps: How many recursive loops to run.
         """
+        # [V26.1] Device Defense
+        inputs = inputs.to(self.slots.device)
+        
         B = inputs.size(0)
         if inputs.dim() == 2: inputs = inputs.unsqueeze(1)
         
@@ -549,7 +552,7 @@ class RecursiveGlobalWorkspace(nn.Module):
         return broadcast, thought_trace
 
 
-class EnhancedConsciousnessCore:
+class EnhancedConsciousnessCore(nn.Module):
     """
     Integrated consciousness system combining all components.
     Optimized for low-latency observation (V7.2).
@@ -561,6 +564,7 @@ class EnhancedConsciousnessCore:
                  awareness_buffer_size: int = 5000,
                  novelty_threshold: float = 2.0,
                  model: Optional[nn.Module] = None):
+        super().__init__()
         self.logger = logging.getLogger('EnhancedConsciousnessCore')
         
         # Core components

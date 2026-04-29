@@ -612,7 +612,20 @@ class AdaptiveFramework(nn.Module):
         # [V9.4] CAS Protocol: Apply Gradient Shunting Hooks
         self.apply_cas_protection()
 
+        # [V26.1] Titan Soul: Strict Device Affinity
+        self._rebuild_restoration_cache()
+        self.logger.info(f"[TITAN] Cognitive Device Sync: {self.device}")
+
         self.logger.info("Airborne-Antara Framework Initialized (V9.4 Eternal Edition)")
+
+    def to(self, device=None, *args, **kwargs):
+        """Override to ensure internal caches are rebuilt on the new device."""
+        if device is not None:
+            self.device = torch.device(device)
+        super().to(device, *args, **kwargs)
+        # Rebuild caches after migration
+        self._rebuild_restoration_cache()
+        return self
 
     def apply_cas_protection(self):
         """
@@ -1365,6 +1378,7 @@ class AdaptiveFramework(nn.Module):
                     batch_args = []
                     for i in range(num_args):
                         # For each argument position, concatenate the tensors from all samples
+                        # [V26.1] Hardened: Explicitly move to self.device
                         arg_tensors = [s.input_args[i].to(self.device) for s in samples]
                         batch_args.append(torch.cat(arg_tensors, dim=0))
                     
