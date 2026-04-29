@@ -393,7 +393,7 @@ class MetaController(nn.Module):
         if config is None:
             config = MetaControllerConfig()
         
-        self.framework = framework
+        # Removed self.framework = framework to prevent RecursionError in state_dict (circular ref)
         self.config = config
         
         # Components

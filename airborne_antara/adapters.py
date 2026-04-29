@@ -71,7 +71,7 @@ class AdapterBank(nn.Module):
 
     def ensure_index(self, idx: int, out_dim: int = None, force_upgrade: bool = False):
         idx_str = str(idx)
-        current_adapter = self.adapters.get(idx_str, None)
+        current_adapter = self.adapters[idx_str] if idx_str in self.adapters else None
         
         # Determine current type
         current_type = 'empty'
