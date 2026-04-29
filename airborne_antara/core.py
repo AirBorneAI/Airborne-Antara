@@ -869,14 +869,6 @@ class AdaptiveFramework(nn.Module):
              if output[1].dtype == torch.long:
                  output, moe_indices = output
         
-        # [V25] Task-Aware Logit Slicing: Match inference scope to training scope
-        # This fixes 'Head Interference' where Task 1 logits drown out Task 0 during eval.
-        if task_id is not None and isinstance(output, torch.Tensor) and output.dim() == 2:
-            num_classes_per_task = 10
-            if output.shape[-1] >= (task_id + 1) * num_classes_per_task:
-                s, e = task_id * num_classes_per_task, (task_id + 1) * num_classes_per_task
-                output = output[:, s:e]
-        
         log_var = torch.tensor(0.0).to(self.device)
         affine_modifiers = None
         
@@ -1643,7 +1635,15 @@ class AdaptiveFramework(nn.Module):
             else:
                 prediction = outputs
                 
-            # 2. World Model Foresight (Optional)
+            # 2. [V26.1] Task-Aware Prediction Slicing
+            # Match inference scope to the specified task_id for eval accuracy
+            if task_id is not None and isinstance(prediction, torch.Tensor) and prediction.dim() == 2:
+                num_classes_per_task = 10
+                if prediction.shape[-1] >= (task_id + 1) * num_classes_per_task:
+                    s, e = task_id * num_classes_per_task, (task_id + 1) * num_classes_per_task
+                    prediction = prediction[:, s:e]
+
+            # 3. World Model Foresight (Optional)
             if self.world_model and hasattr(self, '_current_z_prediction') and self._current_z_prediction is not None:
                 z_pred = self._current_z_prediction
                 diagnostics['foresight_vector'] = z_pred.mean(dim=0).cpu().numpy()
