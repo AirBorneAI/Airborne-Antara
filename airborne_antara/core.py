@@ -104,9 +104,9 @@ class AdaptiveFrameworkConfig:
     replay_priority_temperature: float = 0.6
     
     # --- V7.0: CONSCIOUSNESS LAYER ---
-    enable_consciousness: bool = True
+    enable_consciousness: bool = False # [CLEAN STREAM] Disabled for NeurIPS stability
     use_attention: bool = True
-    use_intrinsic_motivation: bool = True
+    use_intrinsic_motivation: bool = False 
     consciousness_buffer_size: int = 5000
     novelty_threshold: float = 2.0
     
@@ -123,7 +123,8 @@ class AdaptiveFrameworkConfig:
 
     # [V15] IRON MIND PROTOCOL
     use_iron_mind: bool = True
-    iron_mind_quota: float = 0.15
+    iron_mind_quota: float = 0.30
+    use_elastic_quota: bool = True # [V9.5] ENA: Elastic Neural Allocation
 
     # [V8.0] Optimization
     use_lookahead: bool = True
@@ -162,11 +163,11 @@ class AdaptiveFrameworkConfig:
     perception_heads: int = 4
     
     # --- V9.0: SYNTHETIC INTUITION ---
-    enable_world_model: bool = False
+    enable_world_model: bool = False # [CLEAN STREAM] Disabled for NeurIPS stability
     world_model_loss_weight: float = 0.1
     world_model_plasticity_gamma: float = 1.0 
-    enable_health_monitor: bool = True
-    health_check_interval: int = 100 # [STABILIZATION] Increased from 20 to reduce noise
+    enable_health_monitor: bool = False # [CLEAN STREAM] Disabled to prevent mask overrides
+    health_check_interval: int = 100 
     enable_performance_monitor: bool = False  
 
     @classmethod
