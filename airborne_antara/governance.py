@@ -73,10 +73,10 @@ class KnowledgeGovernor:
                 'pct_80': pct_80
             }
 
-        # 4. Rebuild Global Mask from all snapshots using 'Equilibrium Protocol' (Balanced V9.6)
+        # 4. Rebuild Global Mask from all snapshots using 'Equilibrium Protocol' (Balanced V9.7)
         cumulative = {}
-        GLOBAL_CEILING = self.quota # Target 0.30 (30%)
-        BASE_TASK_TARGET = 0.03    # Aim for 3% per task
+        # The self.quota (0.30) is our global saturation limit.
+        BASE_TASK_TARGET = 0.08    # Aim for 8% per task to hit ~30% with overlaps
         
         # Calculate individual quotas with saturation-aware dampening
         task_quotas = {}
@@ -85,17 +85,19 @@ class KnowledgeGovernor:
         for tid, snap in memory_module.task_omega_snapshots.items():
             stats = self.task_stats.get(tid)
             if stats:
-                # Equilibrium Logic: Scale target by (1 - saturation) to preserve future plasticity
-                dampening = max(0.2, 1.0 - current_saturation) 
+                # Equilibrium Logic: Scale target by (1 - saturation)
+                # If we are far from the ceiling, we anchor more aggressively.
+                dampening = max(0.4, 1.0 - (current_saturation / self.quota)) 
                 
                 # Elastic scaling based on task density
-                density = max(stats['pct_80'], 1e-6)
-                factor = torch.tensor(density / 0.0005).log2().item()
-                factor = max(0.5, min(2.0, 1.0 + (factor * 0.2))) 
+                # V9.7: Use a more stable density log-scaling
+                density = max(stats['pct_80'], 0.0001)
+                factor = torch.tensor(density / 0.001).log2().item()
+                factor = max(0.8, min(1.5, 1.0 + (factor * 0.1))) 
                 
                 q = BASE_TASK_TARGET * factor * dampening
-                # Bounds [1%, 5%] ensures stability without greedy lockout
-                q = max(0.01, min(0.05, q))
+                # Bounds [2%, 10%] ensures stability
+                q = max(0.02, min(0.10, q))
                 task_quotas[tid] = q
             else:
                 task_quotas[tid] = BASE_TASK_TARGET
