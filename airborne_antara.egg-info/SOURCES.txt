@@ -6,6 +6,7 @@ airborne_antara/__main__.py
 airborne_antara/adapters.py
 airborne_antara/consciousness_v2.py
 airborne_antara/core.py
+airborne_antara/governance.py
 airborne_antara/health_monitor.py
 airborne_antara/memory.py
 airborne_antara/meta_controller.py
