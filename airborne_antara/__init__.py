@@ -74,6 +74,11 @@ def __getattr__(name):
         from .integration_guide import MirrorMindWithSelfAwareness, MultiTaskSelfAwareLearner
         return locals()[name]
 
+    # ==================== GOVERNANCE (Iron Mind) ====================
+    elif name == 'KnowledgeGovernor':
+        from .governance import KnowledgeGovernor
+        return KnowledgeGovernor
+
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 __all__ = [
@@ -140,4 +145,7 @@ __all__ = [
     # ==================== INTEGRATION ====================
     'MirrorMindWithSelfAwareness',
     'MultiTaskSelfAwareLearner',
+
+    # ==================== GOVERNANCE ====================
+    'KnowledgeGovernor',
 ]

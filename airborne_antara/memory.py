@@ -542,6 +542,10 @@ class UnifiedMemoryHandler:
         self.anchor = {}
         self.sacred_mask = {}
 
+        # [V15 Iron Mind] Governance state
+        self.param_id_to_mask = {}
+        self.task_omega_snapshots = {}
+
         for model in self.models:
             for n, p in model.named_parameters():
                 if p.requires_grad:
@@ -639,9 +643,43 @@ class UnifiedMemoryHandler:
                         else:
                             self.omega[name] = new_omega
                         
-                        # Reset for next task/window
-                        self.anchor[name] = p.data.clone().detach()
                         _accum.zero_() 
+
+                # [V23] IMMUTABLE ANCHORING: Never overwrite anchors for already-sacred weights.
+                # This fixes 'Sliding Window Amnesia' where Task 0 drift is legalized at every task end.
+                for model in self.models:
+                    # 1. Anchor Parameters (Weights/Bias)
+                    for name, p in model.named_parameters():
+                        if not p.requires_grad: continue
+                        
+                        is_sacred = False
+                        if name in self.sacred_mask and self.sacred_mask[name].any():
+                            is_sacred = True
+                        
+                        if not is_sacred:
+                            # Fresh Anchor for plastic weights
+                            self.anchor[name] = p.data.clone().detach()
+                        else:
+                            # Selective update: only update plastic parts of partially sacred tensors
+                            mask = self.sacred_mask[name]
+                            if name not in self.anchor:
+                                self.anchor[name] = p.data.clone().detach()
+                            else:
+                                old_anc = self.anchor[name]
+                                # Keep old anchor where mask is True, take new data where mask is False
+                                self.anchor[name] = torch.where(mask, old_anc, p.data.clone().detach())
+
+                    # 2. Anchor Buffers (BN running stats)
+                    for name, b in model.named_buffers():
+                        if 'running_mean' in name or 'running_var' in name:
+                            is_sacred_bn = False
+                            prefix = name.rsplit('.', 1)[0]
+                            w_name = f"{prefix}.weight"
+                            if w_name in self.sacred_mask and self.sacred_mask[w_name].any():
+                                is_sacred_bn = True
+                            
+                            if not is_sacred_bn or name not in self.anchor:
+                                self.anchor[name] = b.data.clone().detach()
         
         # 2. Consolidate EWC (Requires GRAD for backward pass)
         if self.method in ['ewc', 'hybrid'] and feedback_buffer is not None:

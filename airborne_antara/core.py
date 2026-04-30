@@ -34,6 +34,7 @@ from .adapters import AdapterBank
 from .moe import SparseMoE
 from .perception import PerceptionGateway
 from .world_model import WorldModel
+from .governance import KnowledgeGovernor
 
 # OPTIMIZATION: Use Tensor Cores on Ampere+ GPUs
 torch.set_float32_matmul_precision('high')
@@ -119,6 +120,10 @@ class AdaptiveFrameworkConfig:
     use_ogd: bool = False 
     ogd_max_basis_size: int = 256
     enable_holographic_compression: bool = True # [V9.2] Future-Proofing
+
+    # [V15] IRON MIND PROTOCOL
+    use_iron_mind: bool = True
+    iron_mind_quota: float = 0.08
 
     # [V8.0] Optimization
     use_lookahead: bool = True
@@ -498,6 +503,20 @@ class AdaptiveFramework(nn.Module):
             f"({getattr(config, 'memory_type', 'hybrid')}, Tracking {len(tracked_models)} Models)"
         )
         
+        # [V15] Governance Engine
+        if getattr(config, 'use_iron_mind', True):
+            self.governor = KnowledgeGovernor(
+                quota=getattr(config, 'iron_mind_quota', 0.08), 
+                device=self.device
+            )
+            # Attach Governor directly to Memory
+            self.memory.governor = self.governor
+            # Disable dynamic health/consolidation to prevent mask overrides
+            self.config.enable_health_monitor = False
+            self.logger.info(f"🛡️ Iron Mind Active. Absolute 8% Mathematical Quota Set.")
+        else:
+            self.governor = None
+        
         # 6. Experience Replay
         self.feedback_buffer = FeedbackBuffer(config, self.device)
         if getattr(config, 'use_prioritized_replay', True):
@@ -516,6 +535,10 @@ class AdaptiveFramework(nn.Module):
             min_interval=getattr(config, 'consolidation_min_interval', 30),
             max_interval=getattr(config, 'consolidation_max_interval', 100)
         )
+        
+        if self.governor is not None:
+            # Iron Mind requires manual task boundaries, not dynamic steps
+            self.consolidation_scheduler.should_consolidate = lambda *a, **k: (False, "External Control")
         
         # 8. Consciousness Layer
         if getattr(config, 'enable_consciousness', False):
@@ -665,6 +688,34 @@ class AdaptiveFramework(nn.Module):
                     self.cas_hooks.append(h)
         
         self.logger.info(f"[CAS] Protection Active: {len(self.cas_hooks)} Gradient Shunts installed across {len(models_to_protect)} models.")
+
+    def sync_lookahead_weights(self):
+        """[V17] Resets Lookahead slow_weights to current model state.
+        Call after consolidation to prevent stale slow weights from overwriting sacred coordinates.
+        """
+        if hasattr(self, 'slow_weights') and self.config.use_lookahead:
+            self.slow_weights = {
+                n: p.data.clone().detach()
+                for n, p in self.model.named_parameters()
+                if p.requires_grad
+            }
+            self.logger.info("[CORTEX] Lookahead weights synchronized with anchored state.")
+
+    def on_task_complete(self, task_id: int):
+        """[V9.4] Handles native framework logic for task boundaries."""
+        print(f"\n[ANTARA] Task {task_id} complete. Anchoring Knowledge...")
+        # 1. Consolidate Memory (EWC/SI)
+        self.memory.consolidate(task_id=task_id, feedback_buffer=self.feedback_buffer)
+        
+        # 2. Update Governance (Iron Mind Quota)
+        if self.governor:
+            self.governor.update_sacred_mask(self.memory, task_id, self.model)
+            # [V26.5] Rebuild restoration cache for immediate protection of new knowledge
+            self._rebuild_restoration_cache()
+            
+        # 3. Reset Optimization State (Lookahead)
+        if self.config.use_lookahead:
+            self.sync_lookahead_weights()
 
     def _setup_logging(self):
         logger = logging.getLogger('AdaptiveFramework')
@@ -854,7 +905,9 @@ class AdaptiveFramework(nn.Module):
         Antara Forward Pass (System 1 + System 2 Integration)
         """
         # [V12] Fix: Use get instead of pop to ensure task_id reaches MoE backbone
-        task_id = kwargs.get('task_id', None)
+        task_id = kwargs.get('task_id') or getattr(self, '_current_task_id', None)
+        if task_id is not None:
+            kwargs['task_id'] = task_id
         self._current_task_id = task_id
         fused_latent = None
         if self.perception and len(args) == 1 and isinstance(args[0], dict):
@@ -1014,7 +1067,8 @@ class AdaptiveFramework(nn.Module):
                     mask = self.memory.sacred_mask.get(n) if getattr(self, 'memory', None) else None
                     if mask is not None:
                         if mask.any():
-                            new_slow = torch.where(mask, fast, new_slow)
+                            # [V26.5] FIX: Take SLOW (Anchor) instead of FAST (Plastic) for sacred coords
+                            new_slow = torch.where(mask.to(dev), slow, new_slow)
                     
                     p.data.copy_(new_slow)
                     self.slow_weights[n] = new_slow.detach()

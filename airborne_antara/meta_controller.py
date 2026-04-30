@@ -366,9 +366,9 @@ class ReptileOptimizer:
                     # [V26.3] Pure Device-Local Sacred Mask protection
                     if self.memory and hasattr(self.memory, 'sacred_mask'):
                         mask = self.memory.sacred_mask.get(name, None)
-                        if mask is not None:
-                            # Keep sacred part as it was, interpolate the rest
-                            param.data.copy_(torch.where(mask, param.data, target))
+                        if mask is not None and mask.any():
+                            # Keep sacred part as it was (anchor), interpolate the rest
+                            param.data.copy_(torch.where(mask.to(param.device), anchor.to(param.device), target.to(param.device)))
                             continue
                             
                     param.data.copy_(target)
