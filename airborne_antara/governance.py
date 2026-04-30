@@ -164,6 +164,12 @@ class KnowledgeGovernor:
         num_total = sum(p.numel() for p in backbone_ref.parameters() if p.requires_grad)
         memory_module.saturation_level = total_sacred / num_total
         
-        self.logger.info(f"🛡️ Iron Mind Enforced. Quota: {self.quota*100}%. "
-                         f"Knowledge Anchored. Locked Parameters: {total_sacred:,.0f} / {num_total:,} "
-                         f"({memory_module.saturation_level:.2%})")
+        self.logger.info(f"🛡️ Iron Mind Enforced. Quota: {self.quota*100}%.")
+        print(f"  [SENTIENT] Sacred Mask Updated. Global Saturation: {memory_module.saturation_level:.2%}")
+        print(f"  [SENTIENT] Knowledge Anchored. Locked Parameters: {total_sacred:,.0f} / {num_total:,} ({memory_module.saturation_level:.2%})")
+        
+        if task_id in self.task_stats:
+            stats = self.task_stats[task_id]
+            print(f"  [SENTIENT] Importance Stats: Avg={stats['avg_top']:.4e}, "
+                  f"STD_Div={stats['std_top']:.4e}, "
+                  f"High-Value Density (80%+): {stats['pct_80']:.2%}")

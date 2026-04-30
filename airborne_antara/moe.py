@@ -60,10 +60,11 @@ class GatingNetwork(nn.Module):
     """
     Router that decides which experts to activate.
     """
-    def __init__(self, input_dim, num_experts, top_k=2):
+    def __init__(self, input_dim, num_experts, top_k=2, temperature=1.0):
         super().__init__()
         self.gate = nn.Linear(input_dim, num_experts)
         self.top_k = top_k
+        self.temperature = temperature
 
     def forward(self, x, task_id=None):
         # [V17] Hard Reset of local cache to prevent graph leakage
@@ -88,7 +89,7 @@ class GatingNetwork(nn.Module):
                 raise ValueError(f"SOTA MoE Shape Mismatch: Got {x_flat.shape[1]}, expected {self.gate.in_features}. "
                                  f"Original input: {x.shape}")
 
-        logits = self.gate(x_flat)
+        logits = self.gate(x_flat) / max(self.temperature, 1e-8)
         
         # [V9.4] Contextual Expert Alignment
         if task_id is not None:
@@ -123,7 +124,7 @@ class SparseMoE(nn.Module):
     """
     The Sparse Mixture of Experts Container.
     """
-    def __init__(self, base_model, input_dim, num_experts=4, top_k=2):
+    def __init__(self, base_model, input_dim, num_experts=4, top_k=2, temperature=1.0):
         super().__init__()
         self.num_experts = num_experts
         self.top_k = top_k
@@ -138,8 +139,11 @@ class SparseMoE(nn.Module):
                 ExpertBlock(copy.deepcopy(base_model)) for _ in range(num_experts)
             ])
         
-        self.gate = GatingNetwork(input_dim, num_experts, top_k)
+        self.gate = GatingNetwork(input_dim, num_experts, top_k, temperature)
         self.register_buffer('expert_usage', torch.zeros(num_experts))
+
+    def set_temperature(self, temperature):
+        self.gate.temperature = temperature
 
     def get_usage_stats(self):
         return self.expert_usage.cpu().numpy()
@@ -182,16 +186,21 @@ class HierarchicalMoE(nn.Module):
     """
     [V9.0] Hierarchical Mixture of Experts.
     """
-    def __init__(self, base_model, input_dim, num_domains=2, experts_per_domain=2, top_k=1):
+    def __init__(self, base_model, input_dim, num_domains=2, experts_per_domain=2, top_k=1, temperature=1.0):
         super().__init__()
         self.num_domains = num_domains
         self.experts_per_domain = experts_per_domain
         self.top_k = top_k
-        self.domain_router = GatingNetwork(input_dim, num_domains, top_k=1)
+        self.domain_router = GatingNetwork(input_dim, num_domains, top_k=1, temperature=temperature)
         self.domains = nn.ModuleList([
-            SparseMoE(base_model, input_dim, num_experts=experts_per_domain, top_k=top_k)
+            SparseMoE(base_model, input_dim, num_experts=experts_per_domain, top_k=top_k, temperature=temperature)
             for _ in range(num_domains)
         ])
+
+    def set_temperature(self, temperature):
+        self.domain_router.temperature = temperature
+        for domain in self.domains:
+            domain.set_temperature(temperature)
         
     def get_expert_usage(self):
         usage = {}

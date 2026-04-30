@@ -112,18 +112,18 @@ class AdaptiveFrameworkConfig:
     
     # SI Parameters (Restored)
     importance_method: str = 'ewc'  # 'ewc', 'si', or 'hybrid'
-    si_lambda: float = 1.0 # For SI
-    ewc_lambda: float = 150.0 # [FIX] Lowered from 5000 to allow baseline plasticity
+    si_lambda: float = 1.0 
+    ewc_lambda: float = 150.0 
     si_xi: float = 1e-3
-    use_graph_memory: bool = False # [V9.0] Graph-Based Episodic Memory
+    use_graph_memory: bool = False 
     graph_memory_threshold: float = 0.85
     use_ogd: bool = False 
-    ogd_max_basis_size: int = 256
-    enable_holographic_compression: bool = True # [V9.2] Future-Proofing
+    ogd_max_basis_size: int = 1024
+    enable_holographic_compression: bool = True 
 
     # [V15] IRON MIND PROTOCOL
     use_iron_mind: bool = True
-    iron_mind_quota: float = 0.08
+    iron_mind_quota: float = 0.15
 
     # [V8.0] Optimization
     use_lookahead: bool = True
@@ -138,7 +138,9 @@ class AdaptiveFrameworkConfig:
     top_k_experts: int = 2
     num_domains: int = 2
     experts_per_domain: int = 2
-    input_dim: int = 0 # Required for MoE gating if > 0. Else uses model_dim.
+    input_dim: int = 0 
+    moe_temperature: float = 1.0
+    moe_temp_decay: float = 0.85
 
     # Meta-Controller / Reptile Configuration
     use_reptile: bool = True
@@ -158,14 +160,6 @@ class AdaptiveFrameworkConfig:
     text_dim: int = 0   # Optional projection
     perception_layers: int = 2
     perception_heads: int = 4
-    
-    ewc_lambda: float = 150.0 
-    si_xi: float = 1e-3
-    use_graph_memory: bool = False 
-    graph_memory_threshold: float = 0.85
-    use_ogd: bool = False 
-    ogd_max_basis_size: int = 256
-    enable_holographic_compression: bool = True 
     
     # --- V9.0: SYNTHETIC INTUITION ---
     enable_world_model: bool = False
@@ -436,7 +430,6 @@ class AdaptiveFramework(nn.Module):
             self.perception = PerceptionGateway(self.config)
             self.logger.info("Perception Interface Enabled")
         
-        # [V7.1] MoE Transformation
         if getattr(config, 'use_moe', False):
             from .moe import SparseMoE
             moe_input_dim = config.input_dim if config.input_dim > 0 else config.model_dim
@@ -448,7 +441,8 @@ class AdaptiveFramework(nn.Module):
                     input_dim=moe_input_dim,
                     num_domains=config.num_domains,
                     experts_per_domain=config.experts_per_domain,
-                    top_k=config.top_k_experts
+                    top_k=config.top_k_experts,
+                    temperature=config.moe_temperature
                 ).to(self.device)
             else:
                 self.logger.info("Transforming Cortex into Sparse MoE...")
@@ -456,7 +450,8 @@ class AdaptiveFramework(nn.Module):
                     base_model=self.model,
                     input_dim=moe_input_dim,
                     num_experts=config.num_experts,
-                    top_k=config.top_k_experts
+                    top_k=config.top_k_experts,
+                    temperature=config.moe_temperature
                 ).to(self.device)
             self.logger.info("   [OK] Transformation Complete. The Mind is now distributed.")
         
@@ -494,7 +489,7 @@ class AdaptiveFramework(nn.Module):
             consolidation_criterion=getattr(config, 'consolidation_criterion', 'hybrid'),
             use_graph_memory=getattr(config, 'use_graph_memory', False),
             use_ogd=getattr(config, 'use_ogd', False),
-            ogd_max_basis_size=getattr(config, 'ogd_max_basis_size', 256),
+            ogd_max_basis_size=getattr(config, 'ogd_max_basis_size', 1024),
             graph_threshold=getattr(config, 'graph_memory_threshold', 0.85),
             feature_dim=config.model_dim
         )
@@ -506,14 +501,14 @@ class AdaptiveFramework(nn.Module):
         # [V15] Governance Engine
         if getattr(config, 'use_iron_mind', True):
             self.governor = KnowledgeGovernor(
-                quota=getattr(config, 'iron_mind_quota', 0.08), 
+                quota=getattr(config, 'iron_mind_quota', 0.15), 
                 device=self.device
             )
             # Attach Governor directly to Memory
             self.memory.governor = self.governor
             # Disable dynamic health/consolidation to prevent mask overrides
             self.config.enable_health_monitor = False
-            self.logger.info(f"🛡️ Iron Mind Active. Absolute 8% Mathematical Quota Set.")
+            self.logger.info(f"🛡️ Iron Mind Active. Absolute {self.config.iron_mind_quota*100}% Mathematical Quota Set.")
         else:
             self.governor = None
         
@@ -713,7 +708,16 @@ class AdaptiveFramework(nn.Module):
             # [V26.5] Rebuild restoration cache for immediate protection of new knowledge
             self._rebuild_restoration_cache()
             
-        # 3. Reset Optimization State (Lookahead)
+        # 3. Entropy-Driven Expert Sharpening (Temperature Decay)
+        if getattr(self.config, 'use_moe', False):
+            new_temp = self.config.moe_temperature * (self.config.moe_temp_decay ** (task_id + 1))
+            # Clamp temp to prevent numerical instability, but allow it to go low for "Hard Max"
+            new_temp = max(new_temp, 0.05) 
+            if hasattr(self.model, 'set_temperature'):
+                self.model.set_temperature(new_temp)
+            self.logger.info(f"🔥 MoE Sharpening: Temperature adjusted to {new_temp:.4f}")
+
+        # 4. Reset Optimization State (Lookahead)
         if self.config.use_lookahead:
             self.sync_lookahead_weights()
 
