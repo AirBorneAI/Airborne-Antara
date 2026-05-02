@@ -1481,42 +1481,12 @@ class AdaptiveFramework(nn.Module):
                 else: logits = outputs
 
 
-                # [V27] Dynamic Task Mapping for Replay
-                num_classes_per_task = getattr(self.config, 'classes_per_task', 10)
-                
-                # [V17] TASK-SCOPED DREAMING: Compute per-sample task-scoped CE loss
-                # to prevent replay from suppressing other tasks' logits.
+                # [V29] PURE CLASS-IL DREAMING: Global CE over all classes.
+                # Previous task-scoped slicing was erasing old class neurons during replay.
                 if logits.shape != batch_targets.shape and logits.dim() > batch_targets.dim() and batch_targets.dim() == 1:
                     if batch_targets.dtype != torch.long:
                         batch_targets = batch_targets.long()
-                    
-                    # Check if all samples share the same task
-                    unique_tasks = set(sample_task_ids)
-                    if len(unique_tasks) == 1 and -1 not in unique_tasks:
-                        tid = sample_task_ids[0]
-                        if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
-                            s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
-                            loss = F.cross_entropy(logits[:, s:e], batch_targets % num_classes_per_task)
-                        else:
-                            loss = F.cross_entropy(logits, batch_targets)
-                    elif -1 not in unique_tasks:
-                        # Mixed-task batch: compute per-sample scoped loss
-                        per_sample_losses = []
-                        for i, tid in enumerate(sample_task_ids):
-                            # [V27] Dynamic Mapping
-                            if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
-                                s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
-                                per_sample_losses.append(
-                                    F.cross_entropy(logits[i:i+1, s:e], (batch_targets[i:i+1] % num_classes_per_task))
-                                )
-                            else:
-                                per_sample_losses.append(
-                                    F.cross_entropy(logits[i:i+1], batch_targets[i:i+1])
-                                )
-                        loss = torch.stack(per_sample_losses).mean()
-                    else:
-                        # Fallback: no task_id available
-                        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_targets.view(-1))
+                    loss = F.cross_entropy(logits, batch_targets)
                 elif logits.shape == batch_targets.shape:
                     loss = F.mse_loss(logits.float(), batch_targets.float())
                 else:
