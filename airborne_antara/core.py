@@ -1171,16 +1171,10 @@ class AdaptiveFramework(nn.Module):
                 if target_data.dtype in [torch.float16, torch.float32, torch.float64] or logits.shape == target_data.shape:
                     loss = F.mse_loss(logits, target_data)
                 else:
-                    # [V27] Dynamic Task Slicing for Loss
-                    num_classes_per_task = getattr(self.config, 'classes_per_task', 10)
-                    if task_id is not None and logits.shape[-1] >= (task_id + 1) * num_classes_per_task:
-                        start_cls = task_id * num_classes_per_task
-                        end_cls = (task_id + 1) * num_classes_per_task
-                        task_logits = logits[:, start_cls:end_cls]
-                        task_y = target_data.view(-1) % num_classes_per_task
-                        loss = F.cross_entropy(task_logits, task_y)
-                    else:
-                        loss = F.cross_entropy(logits, target_data.view(-1))
+                    # [V29] Pure Class-IL: Global cross-entropy over ALL classes.
+                    # Task-local slicing was causing 0% accuracy on previous tasks
+                    # by zeroing gradient signal to old class neurons.
+                    loss = F.cross_entropy(logits, target_data.view(-1))
                 
                 # 4. Memory Regularization
                 reg_loss = torch.tensor(0.0, device=self.device)
