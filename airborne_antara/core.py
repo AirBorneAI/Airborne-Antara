@@ -516,7 +516,7 @@ class AdaptiveFramework(nn.Module):
             self.memory.governor = self.governor
             # Disable dynamic health/consolidation to prevent mask overrides
             self.config.enable_health_monitor = False
-            self.logger.info(f"🛡️ Iron Mind Active. Absolute {self.config.iron_mind_quota*100}% Mathematical Quota Set.")
+            self.logger.info(f"Iron Mind Active. Absolute {self.config.iron_mind_quota*100}% Mathematical Quota Set.")
         else:
             self.governor = None
         
