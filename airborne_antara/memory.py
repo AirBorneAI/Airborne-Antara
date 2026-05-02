@@ -880,7 +880,10 @@ class UnifiedMemoryHandler:
             for model in self.models:
                 for name, p in model.named_parameters():
                     if name in self.omega:
-                        loss += (self.omega[name] * (p - self.anchor[name]).pow(2)).sum()
+                        # [V26.1] Ensure device affinity for regularization
+                        o_dev = self.omega[name].to(p.device)
+                        a_dev = self.anchor[name].to(p.device)
+                        loss += (o_dev * (p - a_dev).pow(2)).sum()
             loss *= (self.si_lambda * lamb)
 
         # EWC Penalty
@@ -891,12 +894,25 @@ class UnifiedMemoryHandler:
                     if name in self.fisher_dict:
                         anchor = self.opt_param_dict.get(name)
                         if anchor is not None:
-                            ewc_loss += (self.fisher_dict[name] * (p - anchor).pow(2)).sum()
+                            # [V26.1] Ensure device affinity for EWC
+                            f_dev = self.fisher_dict[name].to(p.device)
+                            a_dev = anchor.to(p.device)
+                            ewc_loss += (f_dev * (p - a_dev).pow(2)).sum()
             loss += ewc_loss * (self.ewc_lambda * lamb)
 
         return loss
 
     # --- Task Memory I/O ---
+
+    def to(self, device):
+        """Move all memory buffers to the specified device."""
+        self.omega = {k: v.to(device) for k, v in self.omega.items()}
+        self.anchor = {k: v.to(device) for k, v in self.anchor.items()}
+        self.fisher_dict = {k: v.to(device) for k, v in self.fisher_dict.items()}
+        self.opt_param_dict = {k: v.to(device) for k, v in self.opt_param_dict.items()}
+        self.sacred_mask = {k: v.to(device) for k, v in self.sacred_mask.items()}
+        self.omega_accum = {k: v.to(device) for k, v in self.omega_accum.items()}
+        return self
 
     def save_task_memory(self, name: Optional[str] = None, adapters=None, fingerprint=None):
         """Save current state (anchor + importance) to disk."""
