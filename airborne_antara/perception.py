@@ -7,6 +7,7 @@ Modular encoders for Vision, Audio, and Text streams with unified latent fusion.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 from typing import Dict, List, Optional, Any, Union
 
 class VisionEncoder(nn.Module):
@@ -37,17 +38,15 @@ class VisionEncoder(nn.Module):
         h_p, w_p = x.size(2), x.size(3)
         x = x.flatten(2).transpose(1, 2) # [B, Seq, model_dim]
         
-        # [V9.2] Dynamic Positional Interpolation
-        # Enables scaling to "Bigger Images" (e.g. 512x512) by interpolating fixed embeddings.
-        seq_len = x.size(1)
-        if seq_len > self.pos_embedding.size(1):
-            # Interpolate based on 2D grid structure
-            pos_tokens = self.pos_embedding.view(1, 32, 32, self.model_dim).permute(0, 3, 1, 2)
-            # Scaling up to higher res via bicubic interpolation
-            interpolated_pos = F.interpolate(pos_tokens, size=(h_p, w_p), mode='bicubic', align_corners=False)
-            x = x + interpolated_pos.permute(0, 2, 3, 1).flatten(1, 2)
-        else:
-            x = x + self.pos_embedding[:, :seq_len, :]
+        # [V27] Robust 2D-Aware Positional Encoding
+        # Always treat the embedding as a 2D grid and interpolate to the current feature map size (h_p, w_p).
+        # This prevents 'Visual Dyslexia' when moving between resolutions.
+        grid_size = int(math.sqrt(self.pos_embedding.size(1)))
+        pos_tokens = self.pos_embedding.view(1, grid_size, grid_size, self.model_dim).permute(0, 3, 1, 2)
+        
+        # Scaling to current patch grid via bicubic interpolation
+        interpolated_pos = F.interpolate(pos_tokens, size=(h_p, w_p), mode='bicubic', align_corners=False)
+        x = x + interpolated_pos.permute(0, 2, 3, 1).flatten(1, 2)
         
         x = self.transformer(x)
         return self.norm(x)

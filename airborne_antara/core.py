@@ -140,6 +140,7 @@ class AdaptiveFrameworkConfig:
     num_domains: int = 2
     experts_per_domain: int = 4
     input_dim: int = 3072 
+    classes_per_task: int = 10 # [V28] Dynamic task density
     moe_temperature: float = 1.0
     moe_temp_decay: float = 0.90
 
@@ -1170,7 +1171,8 @@ class AdaptiveFramework(nn.Module):
                 if target_data.dtype in [torch.float16, torch.float32, torch.float64] or logits.shape == target_data.shape:
                     loss = F.mse_loss(logits, target_data)
                 else:
-                    num_classes_per_task = 10 
+                    # [V27] Dynamic Task Slicing for Loss
+                    num_classes_per_task = getattr(self.config, 'classes_per_task', 10)
                     if task_id is not None and logits.shape[-1] >= (task_id + 1) * num_classes_per_task:
                         start_cls = task_id * num_classes_per_task
                         end_cls = (task_id + 1) * num_classes_per_task
@@ -1485,8 +1487,8 @@ class AdaptiveFramework(nn.Module):
                 else: logits = outputs
 
 
-                metrics = {}
-                num_classes_per_task = 10  # Split-CIFAR100
+                # [V27] Dynamic Task Mapping for Replay
+                num_classes_per_task = getattr(self.config, 'classes_per_task', 10)
                 
                 # [V17] TASK-SCOPED DREAMING: Compute per-sample task-scoped CE loss
                 # to prevent replay from suppressing other tasks' logits.
@@ -1507,6 +1509,7 @@ class AdaptiveFramework(nn.Module):
                         # Mixed-task batch: compute per-sample scoped loss
                         per_sample_losses = []
                         for i, tid in enumerate(sample_task_ids):
+                            # [V27] Dynamic Mapping
                             if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
                                 s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
                                 per_sample_losses.append(
@@ -1713,10 +1716,12 @@ class AdaptiveFramework(nn.Module):
             else:
                 prediction = outputs
                 
-            # 2. [V26.1] Task-Aware Prediction Slicing
-            # Match inference scope to the specified task_id for eval accuracy
+            # 2. [V27] Zero-Leakage Prediction (Global head by default)
+            # If task_id is None (Class-IL), we use the full head.
+            # If task_id is provided (Task-IL), we slice based on dynamic width.
             if task_id is not None and isinstance(prediction, torch.Tensor) and prediction.dim() == 2:
-                num_classes_per_task = 10
+                # Detect width dynamically
+                num_classes_per_task = getattr(self.config, 'classes_per_task', 10)
                 if prediction.shape[-1] >= (task_id + 1) * num_classes_per_task:
                     s, e = task_id * num_classes_per_task, (task_id + 1) * num_classes_per_task
                     prediction = prediction[:, s:e]

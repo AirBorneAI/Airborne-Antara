@@ -243,15 +243,16 @@ class HolographicAssociativeMemory:
     V8.0 Holographic Memory: Clustered Retrieval for Fast, Relevant Recall.
     Uses K-Means clustering on feature embeddings to organize memories.
     """
-    def __init__(self, feature_dim=256, num_clusters=10, capacity=10000):
+    def __init__(self, feature_dim=256, num_clusters=None, capacity=10000):
+        # [V27] Dynamic Clustering: Match resolution to task density if not specified
+        self.num_clusters = num_clusters if num_clusters is not None else 10
         self.feature_dim = feature_dim
-        self.num_clusters = num_clusters
         self.capacity = capacity
-        self.centroids = torch.randn(num_clusters, feature_dim) # Random init
+        self.centroids = torch.randn(self.num_clusters, feature_dim) # Random init
         # Manual deque management for explicit del
-        self.clusters = {i: deque() for i in range(num_clusters)}
+        self.clusters = {i: deque() for i in range(self.num_clusters)}
         self.initialized = False
-        self.max_cluster_size = capacity // num_clusters
+        self.max_cluster_size = capacity // self.num_clusters
         
     def add(self, snapshot, feature_vector: torch.Tensor):
         """Add memory to the closest cluster."""

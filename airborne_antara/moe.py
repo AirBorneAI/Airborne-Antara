@@ -91,12 +91,10 @@ class GatingNetwork(nn.Module):
 
         logits = self.gate(x_flat) / max(self.temperature, 1e-8)
         
-        # [V9.4] Contextual Expert Alignment
-        if task_id is not None:
-            target_expert = task_id % self.gate.out_features
-            mask = torch.ones_like(logits) * -1e9
-            mask[:, target_expert] = 0
-            logits = logits + mask
+        # [V27] Autonomous Feature-Based Routing
+        # We removed the hard task-id mask to ensure the router learns to 
+        # map input features to experts without relying on extrinsic indicators.
+        # This is critical for Class-IL compliance and structural integrity.
         
         # Top-k gating
         # Keep top k values, set others to -inf

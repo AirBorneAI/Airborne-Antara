@@ -59,7 +59,9 @@ class KnowledgeGovernor:
             all_tensors = [imp.view(-1) for imp in id_to_imp.values()]
             flat = torch.cat(all_tensors)
             n = flat.numel()
-            k_base = max(1, min(int(self.quota * n / 10), n)) # Base k for analytics
+            # Calculate k_base based on task count if possible, otherwise default to 1/10th
+            num_tasks = len(memory_module.task_omega_snapshots) if hasattr(memory_module, 'task_omega_snapshots') else 10
+            k_base = max(1, min(int(self.quota * n / max(1, num_tasks)), n)) # Base k for analytics
             
             top_vals, _ = torch.topk(flat, k_base)
             avg_top = top_vals.mean().item()
@@ -128,15 +130,21 @@ class KnowledgeGovernor:
             fc_w_id = id(fc.weight)
             if fc_w_id not in cumulative:
                 cumulative[fc_w_id] = torch.zeros(fc.weight.shape, dtype=torch.bool, device=fc.weight.device)
+            # Dynamic task-specific row detection
+            num_classes = fc.weight.shape[0]
+            # Use 10 as default task count if not detectable, but aim for consistency
+            num_tasks_total = 10 
+            cpt = num_classes // num_tasks_total 
+            
             for tid in memory_module.task_omega_snapshots:
-                s, e = tid * 10, min((tid + 1) * 10, fc.weight.shape[0])
+                s, e = tid * cpt, min((tid + 1) * cpt, fc.weight.shape[0])
                 cumulative[fc_w_id][s:e, :] = True
             if hasattr(fc, 'bias') and fc.bias is not None:
                 fc_b_id = id(fc.bias)
                 if fc_b_id not in cumulative:
                     cumulative[fc_b_id] = torch.zeros(fc.bias.shape, dtype=torch.bool, device=fc.bias.device)
                 for tid in memory_module.task_omega_snapshots:
-                    s, e = tid * 10, min((tid + 1) * 10, fc.bias.shape[0])
+                    s, e = tid * cpt, min((tid + 1) * cpt, fc.bias.shape[0])
                     cumulative[fc_b_id][s:e] = True
 
         # 5b. MoE Gating Network locking
