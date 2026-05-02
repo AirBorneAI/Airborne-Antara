@@ -54,7 +54,7 @@ class AdaptiveFrameworkConfig:
     dropout: float = 0.1
     
     # Learning parameters
-    learning_rate: float = 1e-3
+    learning_rate: float = 2e-3
     meta_learning_rate: float = 1e-4
     
     # Plasticity: How much the model can 'edit' itself directly
@@ -67,8 +67,8 @@ class AdaptiveFrameworkConfig:
     feedback_buffer_size: int = 10000
     evaluation_frequency: int = 10
     # How often to run dreaming/replay (in steps).
-    dream_interval: int = 2 # More Frequent (was 10)
-    dream_batch_size: int = 32 # Larger (was hardcoded 16)
+    dream_interval: int = 10 
+    dream_batch_size: int = 0 # [V26.5] Zero-Exemplar Protocol
     
     # Optimization
     compile_model: bool = True 
@@ -89,7 +89,7 @@ class AdaptiveFrameworkConfig:
     # Z-Score Thresholds
     novelty_z_threshold: float = 2.0
     survival_z_threshold: float = 4.0
-    enable_dreaming: bool = True
+    enable_dreaming: bool = False # [V26.5] Zero-Exemplar Protocol
     enable_tracing: bool = False
     trace_max_records: int = 1000
     
@@ -100,11 +100,11 @@ class AdaptiveFrameworkConfig:
     consolidation_max_interval: int = 100
     consolidation_surprise_threshold: float = 2.5
     adaptive_lambda: bool = True
-    use_prioritized_replay: bool = True
+    use_prioritized_replay: bool = False # [V26.5] Zero-Exemplar Protocol
     replay_priority_temperature: float = 0.6
     
     # --- V7.0: CONSCIOUSNESS LAYER ---
-    enable_consciousness: bool = False # [CLEAN STREAM] Disabled for NeurIPS stability
+    enable_consciousness: bool = True # [NeurIPS-Best] Enabled for superior task-aware adaptation
     use_attention: bool = True
     use_intrinsic_motivation: bool = False 
     consciousness_buffer_size: int = 5000
@@ -112,8 +112,8 @@ class AdaptiveFrameworkConfig:
     
     # SI Parameters (Restored)
     importance_method: str = 'ewc'  # 'ewc', 'si', or 'hybrid'
-    si_lambda: float = 1.0 
-    ewc_lambda: float = 150.0 
+    si_lambda: float = 1.5 
+    ewc_lambda: float = 0.0 
     si_xi: float = 1e-3
     use_graph_memory: bool = False 
     graph_memory_threshold: float = 0.85
@@ -123,7 +123,7 @@ class AdaptiveFrameworkConfig:
 
     # [V15] IRON MIND PROTOCOL
     use_iron_mind: bool = True
-    iron_mind_quota: float = 0.30
+    iron_mind_quota: float = 0.25
     use_elastic_quota: bool = True # [V9.5] ENA: Elastic Neural Allocation
 
     # [V8.0] Optimization
@@ -133,15 +133,15 @@ class AdaptiveFrameworkConfig:
     use_gradient_centralization: bool = True
 
     # --- V7.1: CORTEX ENGINE (MoE) ---
-    use_moe: bool = False
-    use_hierarchical_moe: bool = False
-    num_experts: int = 4
+    use_moe: bool = True
+    use_hierarchical_moe: bool = True
+    num_experts: int = 10
     top_k_experts: int = 2
     num_domains: int = 2
-    experts_per_domain: int = 2
-    input_dim: int = 0 
+    experts_per_domain: int = 4
+    input_dim: int = 3072 
     moe_temperature: float = 1.0
-    moe_temp_decay: float = 0.85
+    moe_temp_decay: float = 0.90
 
     # Meta-Controller / Reptile Configuration
     use_reptile: bool = True
@@ -151,7 +151,7 @@ class AdaptiveFrameworkConfig:
     max_lr: float = 1e-2
     curriculum_start_difficulty: float = 0.1
     curriculum_increase_rate: float = 0.01
-    use_learned_optimizer: bool = True
+    use_learned_optimizer: bool = False
     learned_optimizer_hidden_dim: int = 32
 
     # --- V8.0: PERCEPTION INTERFACE ---
@@ -163,7 +163,7 @@ class AdaptiveFrameworkConfig:
     perception_heads: int = 4
     
     # --- V9.0: SYNTHETIC INTUITION ---
-    enable_world_model: bool = False # [CLEAN STREAM] Disabled for NeurIPS stability
+    enable_world_model: bool = True # [NeurIPS-Best] Enabled for predictive stability
     world_model_loss_weight: float = 0.1
     world_model_plasticity_gamma: float = 1.0 
     enable_health_monitor: bool = False # [CLEAN STREAM] Disabled to prevent mask overrides
@@ -445,6 +445,12 @@ class AdaptiveFramework(nn.Module):
                     top_k=config.top_k_experts,
                     temperature=config.moe_temperature
                 ).to(self.device)
+                
+                # [V26.5] Critical: Force recursive device sync after deepcopying experts
+                for p in self.model.parameters():
+                    p.data = p.data.to(self.device)
+                for b in self.model.buffers():
+                    b.data = b.data.to(self.device)
             else:
                 self.logger.info("Transforming Cortex into Sparse MoE...")
                 self.model = SparseMoE(
@@ -856,9 +862,14 @@ class AdaptiveFramework(nn.Module):
                     with torch.no_grad():
                         if inp.numel() > 0:
                             # Use simple stats to avoid sync overhead
-                            # [V17] Hardened: Explicitly detach and move to buffer device
+                            # [V26.5] Robust device sync for telemetry
+                            if inp.device != self.telemetry_buffer.device:
+                                inp = inp.to(self.telemetry_buffer.device)
+                                
                             mean_val = inp.mean().detach()
                             var_val = inp.var(unbiased=False).detach()
+                            
+                            # Double check buffer device right before assignment
                             self.telemetry_buffer[layer_idx, 0] = mean_val
                             self.telemetry_buffer[layer_idx, 1] = var_val
                             self.telemetry_buffer[layer_idx, 2] = 0 # Optimized out
@@ -1183,15 +1194,18 @@ class AdaptiveFramework(nn.Module):
                 # [V9.0] World Model Latent Prediction
                 wm_loss = torch.tensor(0.0, device=self.device)
                 if self.world_model and features is not None:
+                    # [V26.5] Robust device alignment for temporal forecasting
                     if features.dim() == 3 and features.size(1) > 1:
                         z_t = features[:, :-1, :]
                         z_actual = features[:, 1:, :].detach()
                         z_pred = self.world_model(z_t)
                         _, wm_loss = self.world_model.compute_surprise(z_pred, z_actual)
                     elif hasattr(self, '_last_latent') and self._last_latent is not None:
+                        # Ensure temporal context is on the same device as the predictor
                         z_actual = features.detach()
-                        z_pred = self.world_model(self._last_latent)
+                        z_pred = self.world_model(self._last_latent.to(self.device))
                         _, wm_loss = self.world_model.compute_surprise(z_pred, z_actual)
+                    
                     self._last_latent = features.detach()
 
                 # [V9.2] Expert Balancing Loss
