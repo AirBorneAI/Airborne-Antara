@@ -367,10 +367,10 @@ class ReptileOptimizer:
                     if self.memory and hasattr(self.memory, 'sacred_mask'):
                         mask = self.memory.sacred_mask.get(name, None)
                         if mask is not None and mask.any():
-                            # [V31.6] META-LEAKAGE: Allow meta-learning to refine sacred weights (Positive BWT)
-                            # Instead of a hard-lock (0%), we allow a 5% dampened update.
-                            # This enables the backbone to stay aligned with previous tasks as it evolves.
-                            target_sacred = anchor + (epsilon * 0.05) * (param.data - anchor)
+                            # [V31.7] STABILITY OVER ALL: We disable the 5% leak.
+                            # In Class-IL, any update to sacred weights is a risk.
+                            # Total anchoring (0%) is the only path to zero-forgetting.
+                            target_sacred = anchor
                             param.data.copy_(torch.where(mask.to(param.device), target_sacred.to(param.device), target.to(param.device)))
                             continue
                             

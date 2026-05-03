@@ -374,13 +374,11 @@ class RelationalGraphMemory(nn.Module):
         candidate_indices = []
         for c_idx in nearby_clusters:
             # Only check OLDER nodes to avoid self-loop if strict inequality is needed? 
-            # Actually self-loop is fine but similarity to self is 1.0. 
-            # We usually skip self.
             for idx in self.clusters[c_idx.item()]:
                 if idx != new_node_idx:
                     candidate_indices.append(idx)
-            
-        if candidate_indices:
+        
+        if candidate_indices and self.feature_matrix is not None:
             # [V26.0] Vectorized similarity compute on Candidates ONLY
             candidate_features = self.feature_matrix[candidate_indices]
             sim = F.cosine_similarity(fv.unsqueeze(0), candidate_features)
@@ -400,9 +398,12 @@ class RelationalGraphMemory(nn.Module):
             self.feature_matrix = fv.unsqueeze(0)
         else:
             self.feature_matrix = torch.cat([self.feature_matrix, fv.unsqueeze(0)], dim=0)
-        
+
         # 3. Capacity Management (Prune AFTER adding)
         if len(self.nodes) > self.capacity:
+            self.nodes.pop(0)
+            if self.feature_matrix is not None:
+                self.feature_matrix = self.feature_matrix[1:]
             self._prune_memory()
 
     def _prune_memory(self):
@@ -538,6 +539,9 @@ class UnifiedMemoryHandler:
         # [V9.0] Graph-Based Relational Memory
         self.graph_memory = RelationalGraphMemory(feature_dim=feature_dim, link_threshold=graph_threshold) if use_graph_memory else None
         
+        # [V31.7] Curriculum Context: Default to 10 tasks for CIFAR-100
+        self.total_tasks = 10
+        
         # SI state (per-parameter accumulators) - Force to CPU to save GPU VRAM
         self.omega_accum = {}
         self.omega = {}
@@ -548,15 +552,17 @@ class UnifiedMemoryHandler:
         self.param_id_to_mask = {}
         self.task_omega_snapshots = {}
 
-        for model in self.models:
+        for m_idx, model in enumerate(self.models):
             for n, p in model.named_parameters():
                 if p.requires_grad:
+                    # [V31.7] Unique Naming: Prefix with model index to avoid collisions
+                    unique_name = f"m{m_idx}_{n}"
                     # [V26.3] Device Affinity: Keep memory on the parameter's device
-                    self.omega_accum[n] = torch.zeros_like(p).detach()
-                    self.omega[n] = torch.zeros_like(p).detach()
-                    self.anchor[n] = p.clone().detach() 
+                    self.omega_accum[unique_name] = torch.zeros_like(p).detach()
+                    self.omega[unique_name] = torch.zeros_like(p).detach()
+                    self.anchor[unique_name] = p.clone().detach() 
                     # [V9.4] CAS Protocol: Sacred Core Masks
-                    self.sacred_mask[n] = torch.zeros_like(p).detach().bool()
+                    self.sacred_mask[unique_name] = torch.zeros_like(p).detach().bool()
         self.saturation_level = 0.0 # Percentage of sacred weights
 
         # EWC state
@@ -584,10 +590,11 @@ class UnifiedMemoryHandler:
         if self.method not in ['si', 'hybrid']:
             return {}
         results = {}
-        for model in self.models:
+        for m_idx, model in enumerate(self.models):
             for n, p in model.named_parameters():
                 if p.requires_grad:
-                    results[n] = p.data.clone().detach()
+                    unique_name = f"m{m_idx}_{n}"
+                    results[unique_name] = p.data.clone().detach()
         return results
     
     def accumulate_path(self, param_before: Dict[str, torch.Tensor]) -> None:
@@ -597,16 +604,22 @@ class UnifiedMemoryHandler:
         
         try:
             with torch.no_grad():
-                for model in self.models:
+                for m_idx, model in enumerate(self.models):
                     for name, p in model.named_parameters():
-                        if name in param_before and p.grad is not None:
-                            delta = (p.data - param_before[name].to(p.device)).detach()
-                            g = p.grad.data.detach()
-                            
-                            # [V26.3] Pure Device-Local Accumulation
-                            if name not in self.omega_accum:
-                                self.omega_accum[name] = torch.zeros_like(p).detach()
-                            self.omega_accum[name].add_(-g * delta)
+                        if p.requires_grad and p.grad is not None:
+                            unique_name = f"m{m_idx}_{name}"
+                            if unique_name in param_before:
+                                # delta = p - p_before
+                                delta = (p.data - param_before[unique_name].to(p.device)).detach()
+                                g = p.grad.data.detach()
+                                
+                                # [V26.3] Pure Device-Local Accumulation
+                                if unique_name not in self.omega_accum:
+                                    self.omega_accum[unique_name] = torch.zeros_like(p).detach()
+                                
+                                # [V31.7] NaN Immunity: Prevent numerical corruption of memory
+                                inc = (-g * delta).detach()
+                                self.omega_accum[unique_name].add_(torch.nan_to_num(inc, nan=0.0))
         except Exception:
             pass
     
@@ -620,32 +633,37 @@ class UnifiedMemoryHandler:
         Consolidate importance.
         """
         self.consolidation_counter += 1
-        self.logger.info(f"🧠 Consolidating Memory (Step {current_step}, Mode {mode})...")
-        
-        # 1. Consolidate SI (Requires NO GRAD)
+        self.logger.info(f"🧠 Consolidating Memory (Step {current_step}, Mode {mode})...")        # 1. Consolidate SI (Requires NO GRAD)
         if self.method in ['si', 'hybrid']:
             with torch.no_grad():
-                for model in self.models:
+                for m_idx, model in enumerate(self.models):
                     for name, p in model.named_parameters():
                         if not p.requires_grad: continue
                         
-                        _accum = self.omega_accum.get(name, torch.zeros_like(p))
+                        unique_name = f"m{m_idx}_{name}"
+                        _accum = self.omega_accum.get(unique_name, torch.zeros_like(p))
                         s = _accum
-                        anchor = self.anchor.get(name, p.clone().detach())
+                        anchor = self.anchor.get(unique_name, p.clone().detach())
                         
                         # Damping + Epsilon to prevent NaN
                         denom = (p.data - anchor).pow(2) + self.si_xi
                         denom = torch.clamp(denom, min=1e-8)
-                        new_omega = s / denom
                         
+                        new_omega = s / denom
                         # Fuse and accumulate
                         new_omega = torch.nan_to_num(new_omega, nan=0.0, posinf=1e6, neginf=0.0).clamp(min=0.0, max=1e6)
-                        if name in self.omega:
-                            self.omega[name].add_(new_omega)
-                        else:
-                            self.omega[name] = new_omega
+                        self.omega[unique_name] = self.omega.get(unique_name, torch.zeros_like(p)) + new_omega
                         
-                        _accum.zero_() 
+                        # [V31.7] Selective Anchor Update:
+                        # Keep Task 0 anchors frozen for sacred parts.
+                        mask = self.sacred_mask.get(unique_name)
+                        if mask is not None and mask.any():
+                            # Only update parts that are NOT sacred
+                            self.anchor[unique_name] = torch.where(mask.to(p.device), anchor, p.data.clone().detach())
+                        else:
+                            self.anchor[unique_name] = p.data.clone().detach()
+                            
+                        self.omega_accum[unique_name].zero_()
 
                 # [V23] IMMUTABLE ANCHORING: Never overwrite anchors for already-sacred weights.
                 # This fixes 'Sliding Window Amnesia' where Task 0 drift is legalized at every task end.
@@ -705,13 +723,14 @@ class UnifiedMemoryHandler:
         """
         all_importances = []
         with torch.no_grad():
-            for model in self.models:
+            for m_idx, model in enumerate(self.models):
                 for name, p in model.named_parameters():
                     if not p.requires_grad: continue
                     
-                    imp = self.omega.get(name, torch.zeros_like(p))
-                    if name in self.fisher_dict:
-                        imp = imp + self.fisher_dict[name]
+                    unique_name = f"m{m_idx}_{name}"
+                    imp = self.omega.get(unique_name, torch.zeros_like(p))
+                    if unique_name in self.fisher_dict:
+                        imp = imp + self.fisher_dict[unique_name]
                     
                     all_importances.append(imp.view(-1))
             
@@ -725,18 +744,19 @@ class UnifiedMemoryHandler:
                 threshold = torch.topk(flat_imp, k).values[-1]
                 
                 total_sacred = 0
-                for model in self.models:
+                for m_idx, model in enumerate(self.models):
                     for name, p in model.named_parameters():
                         if not p.requires_grad: continue
                         
-                        imp = self.omega.get(name, torch.zeros_like(p))
-                        if name in self.fisher_dict:
-                            imp = imp + self.fisher_dict[name]
+                        unique_name = f"m{m_idx}_{name}"
+                        imp = self.omega.get(unique_name, torch.zeros_like(p))
+                        if unique_name in self.fisher_dict:
+                            imp = imp + self.fisher_dict[unique_name]
                         
                         # Update Mask: Keep existing sacred + new high-importance
                         new_sacred = (imp >= threshold)
-                        self.sacred_mask[name] = self.sacred_mask.get(name, torch.zeros_like(p).bool()) | new_sacred
-                        total_sacred += self.sacred_mask[name].sum().item()
+                        self.sacred_mask[unique_name] = self.sacred_mask.get(unique_name, torch.zeros_like(p).bool()) | new_sacred
+                        total_sacred += self.sacred_mask[unique_name].sum().item()
                 
                 self.saturation_level = total_sacred / num_total
 
@@ -749,21 +769,45 @@ class UnifiedMemoryHandler:
         if not feedback_buffer.buffer:
             return
             
-        # [V31.1] ROLLING EWC ANCHORING: Restore Plasticity
-        # We now allow anchors to track the latest successful state.
-        # The 'Sacred Mask' in the Governance layer still provides the 'Titanium' hard-lock foundation.
-        for n, p in self.model.named_parameters():
-            if p.requires_grad:
-                # Force to CPU Half to save ~2GB of VRAM across 10 tasks
-                self.opt_param_dict[n] = p.data.clone().detach().half().cpu()
+        # [V31.7] THE CURE: Immutable EWC Anchoring
+        # Previously [V31.1], we used Rolling Anchors which allowed Task 0 to drift.
+        # Now, we only update anchors if they don't exist OR if the weight isn't sacred.
+        sacred_mask = getattr(self, 'sacred_mask', {})
+        for m_idx, model in enumerate(self.models):
+            for n, p in model.named_parameters():
+                if p.requires_grad:
+                    unique_name = f"m{m_idx}_{n}"
+                    if unique_name not in self.opt_param_dict:
+                        # Initial anchor: Use Float32 to prevent precision underflow (Bug #11)
+                        self.opt_param_dict[unique_name] = p.data.clone().detach().float().cpu()
+                    else:
+                        # Only update parts that are NOT sacred (the plastic regions)
+                        mask = sacred_mask.get(unique_name)
+                        if mask is not None and mask.any():
+                            # [V31.7] Selective Anchor Update:
+                            # We keep Task 0 anchors frozen, but allow Task 1 weights to anchor for Task 2.
+                            current_anchor = self.opt_param_dict[unique_name].to(p.device).float()
+                            new_data = p.data.clone().detach().float()
+                            
+                            # Use mask to keep sacred parts of the anchor frozen
+                            updated_anchor = torch.where(mask.to(p.device), current_anchor, new_data)
+                            self.opt_param_dict[unique_name] = updated_anchor.cpu()
+                        else:
+                            # No mask yet (Task 0), update normally
+                            self.opt_param_dict[unique_name] = p.data.clone().detach().float().cpu()
         
         # [V30.10] Accumulate in Float32 on CPU to prevent overflow during summing
-        fisher = {n: torch.zeros_like(p).float().cpu() for n, p in self.model.named_parameters() if p.requires_grad}
+        fisher = {}
+        for m_idx, model in enumerate(self.models):
+            for n, p in model.named_parameters():
+                if p.requires_grad:
+                    unique_name = f"m{m_idx}_{n}"
+                    fisher[unique_name] = torch.zeros_like(p).float().cpu()
         samples = list(feedback_buffer.buffer)[-sample_limit:]
         
-        # [V30.3] Use eval() mode
-        self.model.eval()
-        device = next(self.model.parameters()).device
+        # [V30.3] Use eval() mode on primary backbone (Bug #3)
+        self.models[0].eval()
+        device = next(self.models[0].parameters()).device
         
         # [V30.4] Aggressive pre-consolidation cleanup
         gc.collect()
@@ -787,24 +831,29 @@ class UnifiedMemoryHandler:
                 self.logger.debug(f"Failed to create EWC batch, skipping: {e}")
                 continue
             
-            self.model.zero_grad()
-            output = self.model(*batch_args)
-            if hasattr(output, 'logits'): output = output.logits
-            elif isinstance(output, tuple): output = output[0]
-            
-            is_classification = output.dim() > batch_targets.dim() and batch_targets.dim() == 1 and output.size(0) == batch_targets.size(0)
-            if is_classification:
-                if batch_targets.dtype != torch.long: batch_targets = batch_targets.long()
-                loss = F.cross_entropy(output, batch_targets)
-            else:
-                loss = F.mse_loss(output.float(), batch_targets.float())
+            self.models[0].zero_grad()
+            # [V31.7] AMP Autocast Support for numerical stability on CUDA
+            with torch.amp.autocast(device_type=device.type, enabled=device.type == 'cuda'):
+                # Forward on primary backbone (or wrapper if self.models[0] is SparseMoE)
+                output = self.models[0](*batch_args)
+                if hasattr(output, 'logits'): output = output.logits
+                elif isinstance(output, tuple): output = output[0]
+                
+                is_classification = output.dim() > batch_targets.dim() and batch_targets.dim() == 1 and output.size(0) == batch_targets.size(0)
+                if is_classification:
+                    if batch_targets.dtype != torch.long: batch_targets = batch_targets.long()
+                    loss = F.cross_entropy(output, batch_targets)
+                else:
+                    loss = F.mse_loss(output.float(), batch_targets.float())
             
             loss.backward()
             
-            for name, param in self.model.named_parameters():
-                if param.grad is not None:
-                    # Accumulate in float32 for precision, but store in half
-                    fisher[name] += (param.grad.data.cpu().float() ** 2) * len(batch_samples)
+            for m_idx, model in enumerate(self.models):
+                for name, param in model.named_parameters():
+                    if param.grad is not None:
+                        unique_name = f"m{m_idx}_{name}"
+                        # Accumulate in float32 for precision, but store in half
+                        fisher[unique_name] += (param.grad.data.cpu().float() ** 2) * len(batch_samples)
             
             # [V30.7] Throttled Cleanup to prevent bottleneck
             del output, loss, batch_args, batch_targets
@@ -823,17 +872,17 @@ class UnifiedMemoryHandler:
                 # [V30.10] Clamp to 60,000 to avoid Float16 overflow (max ~65k)
                 fisher[name] = fisher[name].clamp(min=1e-8, max=60000.0)
                 
-        # [V30.6] EMA Update into persistent fisher_dict (On CPU)
-        # [V31.1] Fisher EMA Update (On CPU Half for VRAM safety)
+        # [V31.7] THE CURE: Cumulative Fisher calculation (Float32 Precision)
+        # We store in Float32 to avoid importance underflow (FP16 zeros anything < 6e-8)
         if self.method in ['ewc', 'hybrid']:
             for n in fisher:
-                f_val = fisher[n].detach().cpu().half()
+                f_val = fisher[n].detach().cpu().float() # Ensure float32
                 if n not in self.fisher_dict:
                     self.fisher_dict[n] = f_val
                 else:
-                    # [V30.11] Force result back to half to prevent 'Lazy Promotion' VRAM leak
-                    curr = self.fisher_dict[n].half()
-                    self.fisher_dict[n] = ((curr * 0.7) + (f_val * 0.3)).half()
+                    # [V31.7] Hard addition for importance retention
+                    curr = self.fisher_dict[n].float()
+                    self.fisher_dict[n] = (curr + f_val)
         
         self.logger.info("   [EWC] Fisher Information Matrix stabilized.")
         gc.collect()
@@ -883,7 +932,9 @@ class UnifiedMemoryHandler:
                     batch_args.append(torch.cat(arg_tensors, dim=0))
                 
                 with torch.no_grad():
-                    self.models[0](*batch_args)
+                    # [V31.7] AMP Autocast Support
+                    with torch.amp.autocast(device_type=device.type, enabled=device.type == 'cuda'):
+                        self.models[0](*batch_args)
                 
                 if hasattr(self.models[0], 'clear_cognitive_buffers'):
                     self.models[0].clear_cognitive_buffers()
@@ -912,37 +963,40 @@ class UnifiedMemoryHandler:
             return torch.tensor(0.0, device=next(self.models[0].parameters()).device)
         
         loss = 0.0
-        base = {'BOOTSTRAP': 0.0, 'PANIC': 0.0, 'SURVIVAL': 0.1, 'NOVELTY': 0.8, 'NORMAL': 0.4}.get(adaptive_mode, 0.4)
-        decay = np.exp(-0.01 * step_in_mode)
-        lamb = base * decay
+        # [V31.7] FIX: No more aggressive decay!
+        # Protection must stay strong to hit 50% Avg Acc.
+        base = {'BOOTSTRAP': 0.1, 'PANIC': 0.1, 'SURVIVAL': 0.5, 'NOVELTY': 1.0, 'NORMAL': 1.0}.get(adaptive_mode, 1.0)
+        lamb = base 
         
         if lamb < 1e-4: return torch.tensor(0.0, device=next(self.models[0].parameters()).device)
 
         # SI Penalty
         if self.method in ['si', 'hybrid']:
-            for model in self.models:
+            for m_idx, model in enumerate(self.models):
                 for name, p in model.named_parameters():
-                    if name in self.omega:
+                    unique_name = f"m{m_idx}_{name}"
+                    if unique_name in self.omega:
                         # [V26.1] Ensure device affinity for regularization
-                        o_dev = self.omega[name].to(p.device)
-                        a_dev = self.anchor[name].to(p.device)
+                        o_dev = self.omega[unique_name].to(p.device)
+                        a_dev = self.anchor[unique_name].to(p.device)
                         loss += (o_dev * (p - a_dev).pow(2)).sum()
             loss *= (self.si_lambda * lamb)
 
         # EWC Penalty
         if self.method in ['ewc', 'hybrid']:
             ewc_loss = 0.0
-            for model in self.models:
+            for m_idx, model in enumerate(self.models):
                 for name, p in model.named_parameters():
-                    if name in self.fisher_dict:
-                        anchor = self.opt_param_dict.get(name)
+                    unique_name = f"m{m_idx}_{name}"
+                    if unique_name in self.fisher_dict:
+                        anchor = self.opt_param_dict.get(unique_name)
                         if anchor is not None:
                             # [V30.7] Cast back to param dtype (usually float32) from half-CPU
-                            f_dev = self.fisher_dict[name].to(p.device).to(p.dtype)
+                            f_dev = self.fisher_dict[unique_name].to(p.device).to(p.dtype)
                             anchor = anchor.to(p.device)
                             # [V31.2] Shape Resilience Guard
-                            if p.shape == anchor.shape and p.shape == self.fisher_dict[name].shape:
-                                ewc_loss += (self.fisher_dict[name].to(p.device) * (p - anchor).pow(2)).sum()
+                            if p.shape == anchor.shape and p.shape == self.fisher_dict[unique_name].shape:
+                                ewc_loss += (self.fisher_dict[unique_name].to(p.device) * (p - anchor).pow(2)).sum()
             loss += ewc_loss * (self.ewc_lambda * lamb)
 
         return loss
@@ -1054,7 +1108,7 @@ class PrioritizedReplayBuffer:
     def __init__(self, capacity: int = 10000, temperature: float = 0.6):
         self.capacity = capacity
         self.temperature = max(temperature, 1e-6)  # safety
-        self.buffer = deque() # Manual management for explicit del
+        self.buffer = [None] * capacity # Use list for O(1) index access
         # [V26.0] Vectorized meta-buffers
         self.importances = np.zeros(capacity, dtype=np.float32)
         self.surprises = np.zeros(capacity, dtype=np.float32)
@@ -1093,26 +1147,21 @@ class PrioritizedReplayBuffer:
 
         if len(self.buffer) < self.capacity:
             self.buffer.append(snapshot)
-            self.importances[self.ptr] = float(importance)
-            self.surprises[self.ptr] = float(z_score)
-            self.ages[self.ptr] = 0
-            self.ptr = (self.ptr + 1) % self.capacity
+            self.importances[self.count] = float(importance)
+            self.surprises[self.count] = float(z_score)
+            self.ages[self.count] = 0
             self.count += 1
+            self.ptr = (self.ptr + 1) % self.capacity
         else:
-            # Replace oldest (Buffer is deque, but indices must match)
-            # This is tricky with deque. Switching to list for simplicity in V26
-            self.buffer.popleft()
-            self.buffer.append(snapshot)
-            # Deque popleft means we just shift everything in the meta-buffers
-            # Actually, a circular buffer for both would be better.
-            # For V26, we shift the numpy arrays (Fast enough for 10k)
-            self.importances[:-1] = self.importances[1:]
-            self.surprises[:-1] = self.surprises[1:]
-            self.ages[:-1] = self.ages[1:]
-            
-            self.importances[self.capacity-1] = float(importance)
-            self.surprises[self.capacity-1] = float(z_score)
-            self.ages[self.capacity-1] = 0
+            # [V31.7] Circular Buffer implementation (O(1) instead of O(N))
+            idx = self.ptr
+            self.buffer[idx] = snapshot
+            self.importances[idx] = float(importance)
+            self.surprises[idx] = float(z_score)
+            self.ages[idx] = 0
+            if self.count < self.capacity:
+                self.count += 1
+            self.ptr = (self.ptr + 1) % self.capacity
 
     def sample_batch(self, batch_size: int, use_priorities: bool = True):
         """

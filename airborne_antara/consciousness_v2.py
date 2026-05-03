@@ -214,7 +214,7 @@ class EpisodicMemory:
     """
     
     def __init__(self, max_episodes: int = 5000, feature_dim: int = 512):
-        self.episodes: List[MemoryEpisode] = []
+        self.episodes = deque(maxlen=max_episodes)
         self.max_episodes = max_episodes
         self.feature_dim = feature_dim
         # [V26.0] Vectorized buffers
@@ -264,14 +264,8 @@ class EpisodicMemory:
             self.count += 1
         else:
             # Replace oldest (FIFO)
-            self.episodes[idx] = episode
+            self.episodes.append(episode) # Deque(maxlen) automatically handles popleft
             self.count += 1
-        
-        # Forget least relevant memories if full
-        if len(self.episodes) > self.max_episodes:
-            # Drop the oldest, least effective memory (Simple heuristic)
-            old_episode = self.episodes.pop(0)
-            del old_episode # Explicit release
     
     def retrieve_relevant_memories(self,
                                   current_surprise: float,

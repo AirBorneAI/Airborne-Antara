@@ -28,16 +28,17 @@ class KnowledgeGovernor:
 
         # 1. Gather all importance metrics across the active network
         with torch.no_grad():
-            for m_tracked in memory_module.models:
+            for m_idx, m_tracked in enumerate(memory_module.models):
                 for name, p in m_tracked.named_parameters():
                     if not p.requires_grad:
                         continue
                     p_id = id(p)
                     id_to_p[p_id] = (name, p)
                     
-                    curr = memory_module.omega.get(name, torch.zeros_like(p)).clone()
-                    if name in memory_module.fisher_dict:
-                        curr = curr + memory_module.fisher_dict[name].to(curr.device)
+                    unique_name = f"m{m_idx}_{name}"
+                    curr = memory_module.omega.get(unique_name, torch.zeros_like(p)).clone()
+                    if unique_name in memory_module.fisher_dict:
+                        curr = curr + memory_module.fisher_dict[unique_name].to(curr.device)
                     id_to_imp[p_id] = curr.abs()
 
         if not id_to_imp:

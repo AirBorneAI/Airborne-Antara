@@ -104,16 +104,16 @@ class AdaptiveFrameworkConfig:
     replay_priority_temperature: float = 0.6
     
     # --- V7.0: CONSCIOUSNESS LAYER ---
-    enable_consciousness: bool = True # [NeurIPS-Best] Enabled for superior task-aware adaptation
+    enable_consciousness: bool = False # [NeurIPS-Best] Disable for stable BWT in Phase IV
     use_attention: bool = True
     use_intrinsic_motivation: bool = False 
     consciousness_buffer_size: int = 5000
     novelty_threshold: float = 2.0
     
     # SI Parameters (Restored)
-    importance_method: str = 'ewc'  # 'ewc', 'si', or 'hybrid'
-    si_lambda: float = 1.5 
-    ewc_lambda: float = 0.0 
+    importance_method: str = 'hybrid'  # [V31.7] 'hybrid' for maximum stability
+    si_lambda: float = 800.0 # [V31.7] Split-CIFAR100 NeurIPS Target
+    ewc_lambda: float = 600.0 # [V31.7] Split-CIFAR100 NeurIPS Target
     si_xi: float = 1e-3
     use_graph_memory: bool = False 
     graph_memory_threshold: float = 0.85
@@ -123,7 +123,7 @@ class AdaptiveFrameworkConfig:
 
     # [V15] IRON MIND PROTOCOL
     use_iron_mind: bool = True
-    iron_mind_quota: float = 0.25
+    iron_mind_quota: float = 0.15 # [V31.7] Reduced for increased plasticity in Phase IV
     use_elastic_quota: bool = True # [V9.5] ENA: Elastic Neural Allocation
 
     # [V8.0] Optimization
@@ -134,7 +134,7 @@ class AdaptiveFrameworkConfig:
 
     # --- V7.1: CORTEX ENGINE (MoE) ---
     use_moe: bool = True
-    use_hierarchical_moe: bool = True
+    use_hierarchical_moe: bool = False # [NeurIPS-Best] Flat MoE is superior for domain routing
     num_experts: int = 10
     top_k_experts: int = 2
     num_domains: int = 2
@@ -486,6 +486,13 @@ class AdaptiveFramework(nn.Module):
             tracked_models.append(self.introspection_engine)
         if self.perception:
             tracked_models.append(self.perception)
+        
+        # [V31.7] Mandatory: Initialize Adapters BEFORE Memory for correct tracking
+        self.layer_map = {}
+        self._init_adapters_and_hooks()
+        if hasattr(self, 'adapter_bank') and self.adapter_bank:
+            tracked_models.append(self.adapter_bank)
+            self.logger.info("[ADAPTER] Tracking adapters for Iron Mind protection.")
 
         self.memory = UnifiedMemoryHandler(
             models=tracked_models,
@@ -562,8 +569,8 @@ class AdaptiveFramework(nn.Module):
         self.step_count = 0
         self._cached_sacred_params = [] # [V26.0] Optimization: Cached references to sacred params
 
-        # 4. Initialize Adapters & Hooks (Must run BEFORE optimizer creation)
-        self._init_adapters_and_hooks()
+        # [V26.0] Optimization: Cached references to sacred params
+        self._cached_sacred_params = [] 
         
         # 9. Optimizers
         self.optimizer = AdamW(self.model.parameters(), lr=config.learning_rate)
@@ -636,14 +643,10 @@ class AdaptiveFramework(nn.Module):
         # [V9.4] Autonomous Regime Awareness
         self._perform_self_assessment()
 
-        # [V9.4] CAS Protocol: Apply Gradient Shunting Hooks
-        self.apply_cas_protection()
+        # 7. Finalize Protection
         # [V26.1] Titan Soul: Strict Device Affinity
         self.to(self.device)
         self.logger.info(f"[TITAN] Cognitive Device Sync: {self.device}")
-
-        # 7. Finalize Protection
-        self.apply_cas_protection()
         
         self.logger.info("   [OK] Cognitive Architecture initialized.")
         self.logger.info("Airborne-Antara Framework Initialized (V9.4 Eternal Edition)")
@@ -662,7 +665,7 @@ class AdaptiveFramework(nn.Module):
         self._rebuild_restoration_cache()
         return self
 
-    def apply_cas_protection(self):
+    def apply_cas_protection(self, elastic_limit: float = 0.08):
         """[V15.2] Installs Gradient Shunts (CAS Hooks) on Sacred weights."""
         if not hasattr(self, 'cas_hooks'): self.cas_hooks = []
         
@@ -673,30 +676,35 @@ class AdaptiveFramework(nn.Module):
         
         models_to_protect = self.memory.models if (hasattr(self, 'memory') and self.memory) else [self.model]
             
-        for model in models_to_protect:
+        for m_idx, model in enumerate(models_to_protect):
             # 1. Parameter Gradients (Hard Shunting)
             for name, param in model.named_parameters():
                 if param.requires_grad:
-                    def get_hook(p_name):
+                    unique_name = f"m{m_idx}_{name}"
+                    def get_hook(p_unique_name):
                         def hook(grad):
                             if self.memory and hasattr(self.memory, 'sacred_mask'):
-                                mask = self.memory.sacred_mask.get(p_name, None)
+                                mask = self.memory.sacred_mask.get(p_unique_name, None)
                                 if mask is not None:
                                     if not mask.any(): return grad
                                     
-                                    # [V31.6] ELASTIC SHUNT: Enable Positive BWT
+                                    # [V31.7] ELASTIC SHUNT: Enable Positive BWT
                                     # For backbone layers, we keep the hard-lock (0% flow) to prevent drift.
-                                    # For FC/Classifier heads, we allow 20% flow so they can adapt to the improved backbone.
-                                    if "fc" in p_name.lower() or "classifier" in p_name.lower() or "head" in p_name.lower():
-                                        multiplier = torch.where(mask.to(grad.device), 0.2, 1.0)
+                                    # For FC/Classifier heads, we allow the requested elastic flow (e.g. 8%)
+                                    # so they can adapt to the improved backbone features.
+                                    if "fc" in p_unique_name.lower() or "classifier" in p_unique_name.lower() or "head" in p_unique_name.lower():
+                                        multiplier = torch.where(mask.to(grad.device), elastic_limit, 1.0)
                                         return grad * multiplier
                                     else:
-                                        # Hard lock for backbone to maintain stability
-                                        return grad * (~mask.to(grad.device))
+                                        # [V31.7] BACKBONE PROTECTION: Hard Shunt (0.0)
+                                        # 1% leak was causing cumulative drift over long tasks.
+                                        # We rely on Surgical Restoration for plasticity if needed.
+                                        multiplier = torch.where(mask.to(grad.device), 0.0, 1.0)
+                                        return grad * multiplier
                             return grad
                         return hook
                     
-                    h = param.register_hook(get_hook(name))
+                    h = param.register_hook(get_hook(unique_name))
                     self.cas_hooks.append(h)
             
             # 2. [V15.2] BatchNorm Drift Protection
@@ -706,8 +714,9 @@ class AdaptiveFramework(nn.Module):
                     if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
                         w_name = f"{name}.weight"
                         if w_name in self.memory.sacred_mask and self.memory.sacred_mask[w_name].any():
-                            module.track_running_stats = False
-                            module.eval() 
+                            # [V31.7] BN FLUIDITY: We no longer freeze BN stats.
+                            # The weights/biases are anchored, but statistics must adapt.
+                            pass
         
         self.logger.info(f"[CAS] Protection Active: {len(self.cas_hooks)} Gradient Shunts installed across {len(models_to_protect)} models.")
 
@@ -724,10 +733,17 @@ class AdaptiveFramework(nn.Module):
             self.logger.info("[CORTEX] Lookahead weights synchronized with anchored state.")
 
     def on_task_complete(self, task_id: int):
-        """[V9.4] Handles native framework logic for task boundaries."""
+        """[V15 + V9.4] IRON MIND + Cognitive task boundary handler."""
         print(f"\n[ANTARA] Task {task_id} complete. Anchoring Knowledge...")
+        
         # 1. Consolidate Memory (EWC/SI)
-        self.memory.consolidate(task_id=task_id, feedback_buffer=self.feedback_buffer)
+        if self.memory and self.memory.method != 'none':
+            self.memory.consolidate(
+                task_id=task_id, 
+                feedback_buffer=self.feedback_buffer,
+                current_step=self.step_count,
+                mode='FINAL'
+            )
         
         # 2. Update Governance (Iron Mind Quota)
         if self.governor:
@@ -736,19 +752,23 @@ class AdaptiveFramework(nn.Module):
             self._rebuild_restoration_cache()
             # [V30.2] ENFORCE PROTECTION: Immediately lock BN stats and install shunts
             self.apply_cas_protection()
-            
+        
         # 3. Entropy-Driven Expert Sharpening (Temperature Decay)
         if getattr(self.config, 'use_moe', False):
-            new_temp = self.config.moe_temperature * (self.config.moe_temp_decay ** (task_id + 1))
-            # Clamp temp to prevent numerical instability, but allow it to go low for "Hard Max"
-            new_temp = max(new_temp, 0.05) 
+            # Clamp temp to prevent numerical instability. 
+            # [V31.7] Floor-cap at 0.5 to preserve multi-task routing diversity.
+            new_temp = max(new_temp, 0.5) 
             if hasattr(self.model, 'set_temperature'):
                 self.model.set_temperature(new_temp)
             self.logger.info(f"🔥 MoE Sharpening: Temperature adjusted to {new_temp:.4f}")
-
-        # 4. Reset Optimization State (Lookahead)
+    
+        # 4. Reset Optimization State (Lookahead weights sync — prevents overwriting sacred coords)
         if self.config.use_lookahead:
             self.sync_lookahead_weights()
+        
+        # 5. Clear transient buffers
+        self.clear_cognitive_buffers()
+        self.logger.info(f"Task {task_id} Knowledge Anchored.")
 
     def _setup_logging(self):
         logger = logging.getLogger('AdaptiveFramework')
@@ -861,18 +881,21 @@ class AdaptiveFramework(nn.Module):
 
         self.logger.info(f"[SENTIENT] Self-Assessment Complete. Regime: {self.regime.value.upper()}")
         
-        # 4. Adaptive Policy Injection
+        # 4. Adaptive Policy Injection (Scaled from base values to prevent compounding)
+        base_si = getattr(self.config, 'base_si_lambda', self.config.si_lambda)
+        base_meta_lr = getattr(self.config, 'base_meta_lr', self.config.meta_learning_rate)
+        
         if self.regime == CognitiveRegime.SCRATCH:
-            self.config.meta_learning_rate *= 1.5
+            self.config.meta_learning_rate = base_meta_lr * 1.5
             self.config.novelty_threshold = 1.0 
         elif self.regime == CognitiveRegime.TRANSFER:
-            self.config.si_lambda *= 2.0
+            self.config.si_lambda = base_si * 2.0
             self.config.novelty_threshold = 2.0
         elif self.regime == CognitiveRegime.CONTINUOUS:
-            self.config.si_lambda *= 5.0
+            self.config.si_lambda = base_si * 5.0
             self.config.novelty_threshold = 4.0
         elif self.regime == CognitiveRegime.GHOST:
-            self.config.si_lambda *= 10.0
+            self.config.si_lambda = base_si * 10.0
             self.config.novelty_threshold = 0.5
 
     def _generate_fast_hook(self, layer_idx, module_type):
@@ -1103,10 +1126,13 @@ class AdaptiveFramework(nn.Module):
                     
                     # [V17] Respect Sacred Mask: never overwrite protected coordinates
                     mask = self.memory.sacred_mask.get(n) if getattr(self, 'memory', None) else None
-                    if mask is not None:
-                        if mask.any():
-                            # [V26.5] FIX: Take SLOW (Anchor) instead of FAST (Plastic) for sacred coords
-                            new_slow = torch.where(mask.to(dev), slow, new_slow)
+                    if mask is not None and mask.any():
+                        # [V26.5] FIX: Use the immutable anchor for sacred positions 
+                        # instead of the potentially quantized slow_weight (FP16).
+                        anchor = self.memory.anchor.get(n)
+                        if anchor is not None:
+                            anchor_v = anchor.to(dev)
+                            new_slow = torch.where(mask.to(dev), anchor_v, new_slow)
                     
                     p.data.copy_(new_slow)
                     self.slow_weights[n] = new_slow.detach()
@@ -1149,9 +1175,12 @@ class AdaptiveFramework(nn.Module):
                         is_sacred_module = True
                         break
                 
-                if is_sacred_module and isinstance(m, (torch.nn.modules.batchnorm._BatchNorm)):
-                    m.eval()
-                    m.track_running_stats = False # Absolute Freeze
+                # [V31.7] BN FLUIDITY: We no longer force eval() on sacred modules.
+                # Surgical Restoration handles weight protection, but we allow 
+                # running stats to adapt to the current task distribution.
+                # if is_sacred_module and isinstance(m, (torch.nn.modules.batchnorm._BatchNorm)):
+                #     m.eval()
+                #     m.track_running_stats = False # Absolute Freeze
 
         # [V9.4] Unified Memory Snapshot (Full-Spectrum Coverage)
         # Capture parameters before optimizer.step() for ALL models in the memory system.
@@ -1200,12 +1229,18 @@ class AdaptiveFramework(nn.Module):
                 # 4. Memory Regularization
                 reg_loss = torch.tensor(0.0, device=self.device)
                 if self.memory:
-                    penalty = self.memory.compute_penalty()
-                    if 'surprise' in consciousness_metrics:
-                        s_val = float(consciousness_metrics['surprise'])
-                        s_clamped = max(-3.0, min(3.0, s_val))
-                        scaling_factor = math.exp(-s_clamped)
-                        penalty *= scaling_factor
+                    # [V31.7] Pass Mode-Aware Lambda Scheduling
+                    mode = self.meta_controller.current_mode if self.meta_controller else 'NORMAL'
+                    step_in = getattr(self.meta_controller, 'step_count', 0) # Fallback to global step if mode step missing
+                    penalty = self.memory.compute_penalty(adaptive_mode=mode, step_in_mode=step_in)
+                    # [V31.7] STABILITY OVER PLASTICITY: We no longer scale down protection
+                    # during 'surprise' events. High surprise (new tasks) is exactly 
+                    # when the Iron Mind must be MOST guarded.
+                    # if 'surprise' in consciousness_metrics:
+                    #     s_val = float(consciousness_metrics['surprise'])
+                    #     s_clamped = max(-3.0, min(3.0, s_val))
+                    #     scaling_factor = math.exp(-s_clamped)
+                    #     penalty *= scaling_factor
                     reg_loss = penalty
 
                 # [V9.0] World Model Latent Prediction
@@ -1277,6 +1312,8 @@ class AdaptiveFramework(nn.Module):
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.gradient_clip_norm)
             if self.world_model:
                 torch.nn.utils.clip_grad_norm_(self.world_model.parameters(), self.config.gradient_clip_norm)
+            if self.consciousness:
+                torch.nn.utils.clip_grad_norm_(self.consciousness.parameters(), self.config.gradient_clip_norm)
             
             # 7. Optimizer Steps via Scaler
             self.scaler.step(self.optimizer)
@@ -1388,7 +1425,7 @@ class AdaptiveFramework(nn.Module):
             if hasattr(self.model, 'get_expert_usage'):
                 expert_usage = self.model.get_expert_usage()
                 
-            repairs = self.health_monitor.autonomic_repair(report, projector=projector, expert_usage=expert_usage)
+            repairs = self.health_monitor.autonomic_repair(report, projector=projector, expert_usage=expert_usage, memory=self.memory)
             
             # Reset usage for the next health window
             if hasattr(self.model, 'reset_usage'):
@@ -1506,39 +1543,15 @@ class AdaptiveFramework(nn.Module):
                 # [V27] Dynamic Task Mapping for Replay
                 num_classes_per_task = getattr(self.config, 'classes_per_task', 10)
                 
-                # [V17] TASK-SCOPED DREAMING: Compute per-sample task-scoped CE loss
-                # to prevent replay from suppressing other tasks' logits.
+                # [V17] TASK-SCOPED DREAMING: Compute loss.
+                # [V31.7] FIX: In Class-IL, we use GLOBAL labels and FULL head.
+                metrics = {}
                 if logits.shape != batch_targets.shape and logits.dim() > batch_targets.dim() and batch_targets.dim() == 1:
                     if batch_targets.dtype != torch.long:
                         batch_targets = batch_targets.long()
                     
-                    # Check if all samples share the same task
-                    unique_tasks = set(sample_task_ids)
-                    if len(unique_tasks) == 1 and -1 not in unique_tasks:
-                        tid = sample_task_ids[0]
-                        if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
-                            s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
-                            loss = F.cross_entropy(logits[:, s:e], batch_targets % num_classes_per_task)
-                        else:
-                            loss = F.cross_entropy(logits, batch_targets)
-                    elif -1 not in unique_tasks:
-                        # Mixed-task batch: compute per-sample scoped loss
-                        per_sample_losses = []
-                        for i, tid in enumerate(sample_task_ids):
-                            # [V27] Dynamic Mapping
-                            if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
-                                s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
-                                per_sample_losses.append(
-                                    F.cross_entropy(logits[i:i+1, s:e], (batch_targets[i:i+1] % num_classes_per_task))
-                                )
-                            else:
-                                per_sample_losses.append(
-                                    F.cross_entropy(logits[i:i+1], batch_targets[i:i+1])
-                                )
-                        loss = torch.stack(per_sample_losses).mean()
-                    else:
-                        # Fallback: no task_id available
-                        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_targets.view(-1))
+                    # [V31.7] Class-IL Logic: No slicing, use full head with global labels
+                    loss = F.cross_entropy(logits, batch_targets)
                 elif logits.shape == batch_targets.shape:
                     loss = F.mse_loss(logits.float(), batch_targets.float())
                 else:
@@ -1567,9 +1580,13 @@ class AdaptiveFramework(nn.Module):
                 
                 # [V17] Hardened Replay: Use scaler if available
                 if hasattr(self, 'scaler'):
+                    # [V31.7] Apply Elastic Protection (8% Head Shunt) during Replay
+                    if self.memory and self.memory.is_enabled():
+                        self.apply_cas_protection(elastic_limit=0.08)
+                    
                     self.scaler.scale(total_loss).backward()
                     self.scaler.step(self.optimizer)
-                    # We don't call scaler.update() here because it's called once at the end of train_step
+                    self.scaler.update() # [V31.7] FIX: Update after dream backward
                 else:
                     total_loss.backward()
                     self.optimizer.step()
@@ -1627,11 +1644,36 @@ class AdaptiveFramework(nn.Module):
                              loss = F.mse_loss(logits.float(), batch_y.float())
                 
                 # [V17] Hardened Episodic Replay: Use scaler
-                if hasattr(self, 'scaler'):
+                if hasattr(self, 'scaler') and self.scaler is not None:
+                    # [V31.7] Mandatory Memory Protection during Replay
+                    if self.memory and self.memory.is_enabled():
+                        penalty = self.memory.compute_penalty(
+                            adaptive_mode=(self.meta_controller.current_mode if self.meta_controller else 'NORMAL'),
+                            step_in_mode=(getattr(self.meta_controller, 'step_count', 0) if self.meta_controller else 0)
+                        )
+                        loss += (penalty * 2.0)
+
                     self.scaler.scale(loss).backward()
+                    
+                    if self.memory and self.memory.is_enabled():
+                        self.apply_cas_protection(elastic_limit=0.08)
+
                     self.scaler.step(self.optimizer)
+                    self.scaler.update()
                 else:
+                    # [V31.7] Mandatory Memory Protection during Replay
+                    if self.memory and self.memory.is_enabled():
+                        penalty = self.memory.compute_penalty(
+                            adaptive_mode=(self.meta_controller.current_mode if self.meta_controller else 'NORMAL'),
+                            step_in_mode=(getattr(self.meta_controller, 'step_count', 0) if self.meta_controller else 0)
+                        )
+                        loss += (penalty * 2.0)
+                    
                     loss.backward()
+                    
+                    if self.memory and self.memory.is_enabled():
+                        self.apply_cas_protection(elastic_limit=0.08)
+                    
                     self.optimizer.step()
                 
                 # [V17] Post-Replay Restoration
@@ -1645,20 +1687,6 @@ class AdaptiveFramework(nn.Module):
         finally:
             self._internal_consolidation_mode = False
 
-    def on_task_complete(self, task_id: int):
-        """
-        [V15] IRON MIND: Finalize and anchor task knowledge.
-        Triggers importance consolidation and rebuilding of the Sacred Mask.
-        """
-        self.logger.info(f"🏁 Task {task_id} Complete. Transitioning to Iron Mind...")
-        
-        # 1. Final Consolidation (Refresh Omega/Fisher for the finished task)
-        if self.memory and self.memory.method != 'none':
-            self.memory.consolidate(
-                feedback_buffer=self.feedback_buffer,
-                current_step=self.step_count,
-                mode='FINAL'
-            )
         
         # 2. Update Sacred Mask (The Hard-Lock)
         if self.governor:
@@ -1763,14 +1791,9 @@ class AdaptiveFramework(nn.Module):
                 prediction = outputs
                 
             # 2. [V27] Zero-Leakage Prediction (Global head by default)
-            # If task_id is None (Class-IL), we use the full head.
-            # If task_id is provided (Task-IL), we slice based on dynamic width.
-            if task_id is not None and isinstance(prediction, torch.Tensor) and prediction.dim() == 2:
-                # Detect width dynamically
-                num_classes_per_task = getattr(self.config, 'classes_per_task', 10)
-                if prediction.shape[-1] >= (task_id + 1) * num_classes_per_task:
-                    s, e = task_id * num_classes_per_task, (task_id + 1) * num_classes_per_task
-                    prediction = prediction[:, s:e]
+            # [V31.7] Class-IL Enforcement: We use the full head.
+            # Task-ID is used for MoE routing but not for logit slicing in Class-IL.
+            pass
 
             # 3. World Model Foresight (Optional)
             if self.world_model and hasattr(self, '_current_z_prediction') and self._current_z_prediction is not None:
@@ -1977,27 +2000,30 @@ class AdaptiveFramework(nn.Module):
 
     def _apply_sacred_restoration(self):
         """
-        [V26.0] TITAN SOUL: Surgical parameter restoration using cached references.
-        Reduces restoration overhead from O(N_total) to O(N_sacred).
+        [V31.7] RE-ENABLED: Surgical Weight Restoration.
+        AdamW weight-decay and Lookahead updates bypass gradient hooks.
+        We must manually snap sacred coordinates back to their anchors 
+        after every optimizer step to guarantee zero drift.
         """
-        if not self._cached_sacred_params:
-            # Fallback if cache is empty or not yet built
-            if not self.memory or not hasattr(self.memory, "sacred_mask") or not self.memory.sacred_mask:
-                return
-            self._rebuild_restoration_cache()
-            
-        with torch.no_grad():
-            # 1. Restore Parameters (Weights/Bias)
-            for param, mask, anchor in self._cached_sacred_params:
-                param.data[mask] = anchor[mask]
+        if not hasattr(self, '_cached_sacred_params') or not self._cached_sacred_params:
+            return
 
-            # 2. Restore BN Running Stats (Cryostasis)
-            if hasattr(self, '_cached_sacred_bn'):
-                for module, mean_anchor, var_anchor in self._cached_sacred_bn:
-                    if mean_anchor is not None: module.running_mean.copy_(mean_anchor)
-                    if var_anchor is not None: module.running_var.copy_(var_anchor)
-                    module.eval()
-                    module.track_running_stats = False
+        with torch.no_grad():
+            for param, mask, anchor in self._cached_sacred_params:
+                # [V31.7] Efficient masked copy using in-place where
+                # anchor must be on the same device as param
+                param.data[mask] = anchor[mask].to(param.device)
+
+            # 2. Restore BN Running Stats (Cryostasis - Disabled for Fluidity)
+            # [V31.7] We no longer manually overwrite BN stats during training.
+            # This allows the model to adapt its normalization to the full 10-task distribution.
+            # if hasattr(self, '_cached_sacred_bn'):
+            #     for module, mean_anchor, var_anchor in self._cached_sacred_bn:
+            #         if mean_anchor is not None: module.running_mean.copy_(mean_anchor)
+            #         if var_anchor is not None: module.running_var.copy_(var_anchor)
+                    # [V31.7] FIX: Do NOT set to eval() or disable track_running_stats.
+                    # Task 1 needs to adapt BN stats to its own distribution to learn.
+                    # We rely on weight/bias anchoring to preserve the 'Titanium' foundation.
 
     def _rebuild_restoration_cache(self):
         """Build the list of references to sacred parameters and anchors."""
@@ -2006,26 +2032,29 @@ class AdaptiveFramework(nn.Module):
         if not self.memory: return
         
         # A. Parameter Cache
-        for name, param in self.named_parameters():
-            mask = self.memory.sacred_mask.get(name)
-            if mask is not None and mask.any():
-                anchor = self.memory.anchor.get(name)
-                if anchor is not None:
-                    self._cached_sacred_params.append((param, mask, anchor))
+        models_to_track = self.memory.models if self.memory.models else [self.model]
+        for model in models_to_track:
+            for name, param in model.named_parameters():
+                mask = self.memory.sacred_mask.get(name)
+                if mask is not None and mask.any():
+                    anchor = self.memory.anchor.get(name)
+                    if anchor is not None:
+                        self._cached_sacred_params.append((param, mask, anchor))
                     
         # B. BN Buffer Cache (Cryostasis)
-        for name, m in self.named_modules():
-            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
-                is_sacred = False
-                for p_name in ['weight', 'bias']:
-                    full_p_name = f"{name}.{p_name}" if name else p_name
-                    if full_p_name in self.memory.sacred_mask and self.memory.sacred_mask[full_p_name].any():
-                        is_sacred = True; break
-                
-                m._is_sacred_bn = is_sacred
-                if is_sacred:
-                    mean_key = f"{name}.running_mean"
-                    var_key = f"{name}.running_var"
-                    mean_anchor = self.memory.anchor.get(mean_key)
-                    var_anchor = self.memory.anchor.get(var_key)
-                    self._cached_sacred_bn.append((m, mean_anchor, var_anchor))
+        for model in models_to_track:
+            for name, m in model.named_modules():
+                if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                    is_sacred = False
+                    for p_name in ['weight', 'bias']:
+                        full_p_name = f"{name}.{p_name}" if name else p_name
+                        if full_p_name in self.memory.sacred_mask and self.memory.sacred_mask[full_p_name].any():
+                            is_sacred = True; break
+                    
+                    m._is_sacred_bn = is_sacred
+                    if is_sacred:
+                        mean_key = f"{name}.running_mean"
+                        var_key = f"{name}.running_var"
+                        mean_anchor = self.memory.anchor.get(mean_key)
+                        var_anchor = self.memory.anchor.get(var_key)
+                        self._cached_sacred_bn.append((m, mean_anchor, var_anchor))

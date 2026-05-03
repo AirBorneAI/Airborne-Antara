@@ -45,7 +45,7 @@ class NeuralHealthMonitor:
                 report[name] = status
         return report
 
-    def autonomic_repair(self, report: Dict[str, str], projector=None, expert_usage: Dict[int, float] = None):
+    def autonomic_repair(self, report: Dict[str, str], projector=None, expert_usage: Dict[int, float] = None, memory=None):
         """
         [V9.3] MoE-Aware Soft Jitter Rejuvenation.
         Preserves knowledge in idle experts while fixing truly dead neurons.
@@ -77,9 +77,9 @@ class NeuralHealthMonitor:
                     noise = projector.project_gradient(name, noise)
 
                 # [V17] UNYIELDING SOUL: Apply Sacred Mask protection to repairs
-                memory = getattr(self.model, 'memory', None)
-                if memory and hasattr(memory, 'sacred_mask'):
-                    mask = memory.sacred_mask.get(name, None)
+                mem = memory if memory is not None else getattr(self.model, 'memory', None)
+                if mem and hasattr(mem, 'sacred_mask'):
+                    mask = mem.sacred_mask.get(name, None)
                     if mask is not None and mask.any():
                         noise = noise * (~mask.to(noise.device))
                 

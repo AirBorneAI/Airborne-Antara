@@ -47,6 +47,9 @@ class AdaptiveExpertBlock(nn.Module):
         mod = self.modulation(x_flat)
         scale, shift = torch.chunk(mod, 2, dim=-1)
         
+        # [V31.7] Bounded Scale: Prevent FiLM explosion
+        scale = torch.tanh(scale)
+        
         # 2. Reshape for broadcasting
         view_shape = [x.size(0)] + [1] * (x.dim() - 1)
         scale = scale.view(*view_shape)
@@ -74,8 +77,12 @@ class GatingNetwork(nn.Module):
         if x.dim() == 3:
             # SOTA Sequence Pooling: [B, S, D] -> [B, D]
             x_flat = x.mean(dim=1)
-        elif x.dim() > 3:
-            # Flatten multi-dim inputs (Images, etc)
+        elif x.dim() == 4:
+            # [V31.7] Image Spatial Pooling: [B, C, H, W] -> [B, C]
+            # This handles Bug #4 by ensuring image features are pooled before gating.
+            x_flat = F.adaptive_avg_pool2d(x, (1, 1)).view(x.size(0), -1)
+        elif x.dim() > 4:
+            # Flatten multi-dim inputs
             x_flat = x.view(x.size(0), -1)
         else:
             x_flat = x
