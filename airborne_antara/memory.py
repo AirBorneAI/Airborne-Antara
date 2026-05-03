@@ -769,8 +769,8 @@ class UnifiedMemoryHandler:
                     # Fallback: if no mask, this is the first consolidation or mask is missing
                     self.opt_param_dict[n] = new_data
         
-        # [V30.7] Store Fisher in Half Precision on CPU
-        fisher = {n: torch.zeros_like(p).half().cpu() for n, p in self.model.named_parameters() if p.requires_grad}
+        # [V30.10] Accumulate in Float32 on CPU to prevent overflow during summing
+        fisher = {n: torch.zeros_like(p).float().cpu() for n, p in self.model.named_parameters() if p.requires_grad}
         samples = list(feedback_buffer.buffer)[-sample_limit:]
         
         # [V30.3] Use eval() mode
@@ -832,7 +832,8 @@ class UnifiedMemoryHandler:
         if len(samples) > 0:
             for name in fisher:
                 fisher[name] /= len(samples)
-                fisher[name] = fisher[name].clamp(min=1e-8, max=1e6)
+                # [V30.10] Clamp to 60,000 to avoid Float16 overflow (max ~65k)
+                fisher[name] = fisher[name].clamp(min=1e-8, max=60000.0)
                 
         # [V30.6] EMA Update into persistent fisher_dict (On CPU)
         if self.method == 'ewc':
@@ -841,7 +842,7 @@ class UnifiedMemoryHandler:
                 if n not in self.fisher_dict:
                     self.fisher_dict[n] = f_val
                 else:
-                    # EMA on CPU in half precision
+                    # [V30.10] EMA on CPU, storing final result in half precision
                     curr = self.fisher_dict[n].half()
                     self.fisher_dict[n] = (curr * 0.9) + (f_val.half() * 0.1)
         
