@@ -698,7 +698,7 @@ class AdaptiveFramework(nn.Module):
                         w_name = f"{name}.weight"
                         if w_name in self.memory.sacred_mask and self.memory.sacred_mask[w_name].any():
                             module.track_running_stats = False
-                            module.eval() # Force eval mode for this specific layer even in training
+                            module.eval() 
         
         self.logger.info(f"[CAS] Protection Active: {len(self.cas_hooks)} Gradient Shunts installed across {len(models_to_protect)} models.")
 
@@ -725,6 +725,8 @@ class AdaptiveFramework(nn.Module):
             self.governor.update_sacred_mask(self.memory, task_id, self.model)
             # [V26.5] Rebuild restoration cache for immediate protection of new knowledge
             self._rebuild_restoration_cache()
+            # [V30.2] ENFORCE PROTECTION: Immediately lock BN stats and install shunts
+            self.apply_cas_protection()
             
         # 3. Entropy-Driven Expert Sharpening (Temperature Decay)
         if getattr(self.config, 'use_moe', False):

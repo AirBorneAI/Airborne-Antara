@@ -77,8 +77,9 @@ class KnowledgeGovernor:
 
         # 4. Rebuild Global Mask from all snapshots using 'Equilibrium Protocol' (Balanced V9.7)
         cumulative = {}
-        # The self.quota (0.30) is our global saturation limit.
-        BASE_TASK_TARGET = 0.08    # Aim for 8% per task to hit ~30% with overlaps
+        num_tasks_total = getattr(memory_module, 'total_tasks', 10)
+        # [V30.2] Elastic Quota: Divide global quota by expected tasks
+        BASE_TASK_TARGET = self.quota / max(1, num_tasks_total) 
         
         # Calculate individual quotas with saturation-aware dampening
         task_quotas = {}
@@ -98,8 +99,8 @@ class KnowledgeGovernor:
                 factor = max(0.8, min(1.5, 1.0 + (factor * 0.1))) 
                 
                 q = BASE_TASK_TARGET * factor * dampening
-                # Bounds [2%, 10%] ensures stability
-                q = max(0.02, min(0.10, q))
+                # Bounds [1%, 25%] ensures stability
+                q = max(0.01, min(0.25, q))
                 task_quotas[tid] = q
             else:
                 task_quotas[tid] = BASE_TASK_TARGET

@@ -691,7 +691,9 @@ class UnifiedMemoryHandler:
             self._consolidate_ogd_subspaces(feedback_buffer)
         
         # [V9.4] CAS Protocol: Update Sacred Core and Saturation
-        self._update_sacred_core()
+        # [V30.2] Bypass if Governor is active to prevent quota dilution
+        if not hasattr(self, 'governor') or self.governor is None:
+            self._update_sacred_core()
 
         self.last_consolidation_step = current_step
         self.logger.info(f"🔒 Consolidation complete. Saturation: {self.saturation_level*100:.2f}%")
