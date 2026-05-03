@@ -18,6 +18,7 @@ STATUS: PRODUCTION READY
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import gc
 import logging
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Union, Any
@@ -684,7 +685,7 @@ class UnifiedMemoryHandler:
         
         # 2. Consolidate EWC (Requires GRAD for backward pass)
         if self.method in ['ewc', 'hybrid'] and feedback_buffer is not None:
-            self._consolidate_ewc_fisher_vectorized(feedback_buffer)
+            self._consolidate_ewc_fisher_vectorized(feedback_buffer, batch_size=4)
             
         # 3. Consolidate OGD (Compute Subspaces)
         if self.use_ogd and feedback_buffer is not None:
@@ -749,19 +750,23 @@ class UnifiedMemoryHandler:
             return
             
         self.opt_param_dict = {
-            n: p.clone().detach() 
+            n: p.clone().detach().cpu() 
             for n, p in self.model.named_parameters() 
             if p.requires_grad
         }
         
-        fisher = {n: torch.zeros_like(p) for n, p in self.model.named_parameters() if p.requires_grad}
+        # [V30.4] Store Fisher on CPU to save 400MB+ VRAM on 8GB cards
+        fisher = {n: torch.zeros_like(p).cpu() for n, p in self.model.named_parameters() if p.requires_grad}
         samples = list(feedback_buffer.buffer)[-sample_limit:]
         
-        # [V30.3] Use eval() mode — Fisher only needs parameter gradients,
-        # NOT BN running stat tracking. train() mode causes BN layers across
-        # the entire MoE hierarchy to allocate gradient buffers, causing OOM.
+        # [V30.3] Use eval() mode
         self.model.eval()
         device = next(self.model.parameters()).device
+        
+        # [V30.4] Aggressive pre-consolidation cleanup
+        gc.collect()
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
         
         for i in range(0, len(samples), batch_size):
             batch_samples = samples[i:i+batch_size]
@@ -796,19 +801,33 @@ class UnifiedMemoryHandler:
             
             for name, param in self.model.named_parameters():
                 if param.grad is not None:
-                    fisher[name] += (param.grad.data ** 2) * len(batch_samples)
+                    fisher[name] += (param.grad.data.cpu() ** 2) * len(batch_samples)
             
-            # [V30.3] Explicit VRAM cleanup between batches
+            # [V30.4] Explicit VRAM cleanup between batches
             del output, loss, batch_args, batch_targets
+            self.model.zero_grad() 
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
+            gc.collect()
         
         if len(samples) > 0:
             for name in fisher:
                 fisher[name] /= len(samples)
                 fisher[name] = fisher[name].clamp(min=1e-8, max=1e6)
                 
-        self.fisher_dict = fisher
+        # [V30.6] EMA Update into persistent fisher_dict (On CPU)
+        if self.method == 'ewc':
+            for n in fisher:
+                f_val = fisher[n].detach().cpu()
+                if n not in self.fisher_dict:
+                    self.fisher_dict[n] = f_val
+                else:
+                    # Accumulate: New task importance + Old task importance
+                    self.fisher_dict[n] = (self.fisher_dict[n].cpu() * 0.9) + (f_val * 0.1)
+        
+        gc.collect()
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
 
     def _consolidate_ogd_subspaces(self, feedback_buffer, sample_limit: int = 100, batch_size: int = 20):
         """
