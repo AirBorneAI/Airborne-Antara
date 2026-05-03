@@ -24,6 +24,7 @@ class KnowledgeGovernor:
         """
         id_to_p = {} 
         id_to_imp = {}
+        cumulative = {} # [V31.6] Initialize mask accumulator
 
         # 1. Gather all importance metrics across the active network
         with torch.no_grad():

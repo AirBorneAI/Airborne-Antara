@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unified Memory Handler: SOTA Continual Learning (Production V3.3)
 =================================================================
 Combines SI (Synaptic Intelligence), EWC (Elastic Weight Consolidation),
@@ -18,7 +18,6 @@ STATUS: PRODUCTION READY
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import gc
 import logging
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Union, Any
@@ -244,16 +243,15 @@ class HolographicAssociativeMemory:
     V8.0 Holographic Memory: Clustered Retrieval for Fast, Relevant Recall.
     Uses K-Means clustering on feature embeddings to organize memories.
     """
-    def __init__(self, feature_dim=256, num_clusters=None, capacity=10000):
-        # [V27] Dynamic Clustering: Match resolution to task density if not specified
-        self.num_clusters = num_clusters if num_clusters is not None else 10
+    def __init__(self, feature_dim=256, num_clusters=10, capacity=10000):
         self.feature_dim = feature_dim
+        self.num_clusters = num_clusters
         self.capacity = capacity
-        self.centroids = torch.randn(self.num_clusters, feature_dim) # Random init
+        self.centroids = torch.randn(num_clusters, feature_dim) # Random init
         # Manual deque management for explicit del
-        self.clusters = {i: deque() for i in range(self.num_clusters)}
+        self.clusters = {i: deque() for i in range(num_clusters)}
         self.initialized = False
-        self.max_cluster_size = capacity // self.num_clusters
+        self.max_cluster_size = capacity // num_clusters
         
     def add(self, snapshot, feature_vector: torch.Tensor):
         """Add memory to the closest cluster."""
@@ -685,16 +683,14 @@ class UnifiedMemoryHandler:
         
         # 2. Consolidate EWC (Requires GRAD for backward pass)
         if self.method in ['ewc', 'hybrid'] and feedback_buffer is not None:
-            self._consolidate_ewc_fisher_vectorized(feedback_buffer, batch_size=4)
+            self._consolidate_ewc_fisher_vectorized(feedback_buffer)
             
         # 3. Consolidate OGD (Compute Subspaces)
         if self.use_ogd and feedback_buffer is not None:
             self._consolidate_ogd_subspaces(feedback_buffer)
         
         # [V9.4] CAS Protocol: Update Sacred Core and Saturation
-        # [V30.2] Bypass if Governor is active to prevent quota dilution
-        if not hasattr(self, 'governor') or self.governor is None:
-            self._update_sacred_core()
+        self._update_sacred_core()
 
         self.last_consolidation_step = current_step
         self.logger.info(f"🔒 Consolidation complete. Saturation: {self.saturation_level*100:.2f}%")
@@ -740,35 +736,24 @@ class UnifiedMemoryHandler:
                 
                 self.saturation_level = total_sacred / num_total
 
-    def _consolidate_ewc_fisher_vectorized(self, feedback_buffer, sample_limit: int = 128, batch_size: int = 8):
+    def _consolidate_ewc_fisher_vectorized(self, feedback_buffer, sample_limit: int = 128, batch_size: int = 32):
         """
         Vectorized Fisher computation. 
-        [V30.3] Memory-safe: uses eval() mode to prevent BN stat allocation across MoE,
-        reduced batch size, and explicit VRAM cleanup between iterations.
         """
         if not feedback_buffer.buffer:
             return
             
-        # [V31.1] ROLLING EWC ANCHORING: Restore Plasticity
-        # We now allow anchors to track the latest successful state.
-        # The 'Sacred Mask' in the Governance layer still provides the 'Titanium' hard-lock foundation.
-        for n, p in self.model.named_parameters():
-            if p.requires_grad:
-                # Force to CPU Half to save ~2GB of VRAM across 10 tasks
-                self.opt_param_dict[n] = p.data.clone().detach().half().cpu()
+        self.opt_param_dict = {
+            n: p.clone().detach() 
+            for n, p in self.model.named_parameters() 
+            if p.requires_grad
+        }
         
-        # [V30.10] Accumulate in Float32 on CPU to prevent overflow during summing
-        fisher = {n: torch.zeros_like(p).float().cpu() for n, p in self.model.named_parameters() if p.requires_grad}
+        fisher = {n: torch.zeros_like(p) for n, p in self.model.named_parameters() if p.requires_grad}
         samples = list(feedback_buffer.buffer)[-sample_limit:]
         
-        # [V30.3] Use eval() mode
-        self.model.eval()
+        self.model.train() 
         device = next(self.model.parameters()).device
-        
-        # [V30.4] Aggressive pre-consolidation cleanup
-        gc.collect()
-        if device.type == 'cuda':
-            torch.cuda.empty_cache()
         
         for i in range(0, len(samples), batch_size):
             batch_samples = samples[i:i+batch_size]
@@ -803,42 +788,14 @@ class UnifiedMemoryHandler:
             
             for name, param in self.model.named_parameters():
                 if param.grad is not None:
-                    # Accumulate in float32 for precision, but store in half
-                    fisher[name] += (param.grad.data.cpu().float() ** 2) * len(batch_samples)
-            
-            # [V30.7] Throttled Cleanup to prevent bottleneck
-            del output, loss, batch_args, batch_targets
-            self.model.zero_grad() 
-            
-            batch_idx = i // batch_size
-            if batch_idx % 8 == 0:
-                self.logger.debug(f"   [EWC] Consolidation Progress: {i}/{len(samples)} samples...")
-                if device.type == 'cuda':
-                    torch.cuda.empty_cache()
-                gc.collect()
+                    fisher[name] += (param.grad.data ** 2) * len(batch_samples)
         
         if len(samples) > 0:
             for name in fisher:
                 fisher[name] /= len(samples)
-                # [V30.10] Clamp to 60,000 to avoid Float16 overflow (max ~65k)
-                fisher[name] = fisher[name].clamp(min=1e-8, max=60000.0)
+                fisher[name] = fisher[name].clamp(min=1e-8, max=1e6)
                 
-        # [V30.6] EMA Update into persistent fisher_dict (On CPU)
-        # [V31.1] Fisher EMA Update (On CPU Half for VRAM safety)
-        if self.method in ['ewc', 'hybrid']:
-            for n in fisher:
-                f_val = fisher[n].detach().cpu().half()
-                if n not in self.fisher_dict:
-                    self.fisher_dict[n] = f_val
-                else:
-                    # [V30.11] Force result back to half to prevent 'Lazy Promotion' VRAM leak
-                    curr = self.fisher_dict[n].half()
-                    self.fisher_dict[n] = ((curr * 0.7) + (f_val * 0.3)).half()
-        
-        self.logger.info("   [EWC] Fisher Information Matrix stabilized.")
-        gc.collect()
-        if device.type == 'cuda':
-            torch.cuda.empty_cache()
+        self.fisher_dict = fisher
 
     def _consolidate_ogd_subspaces(self, feedback_buffer, sample_limit: int = 100, batch_size: int = 20):
         """
@@ -923,10 +880,7 @@ class UnifiedMemoryHandler:
             for model in self.models:
                 for name, p in model.named_parameters():
                     if name in self.omega:
-                        # [V26.1] Ensure device affinity for regularization
-                        o_dev = self.omega[name].to(p.device)
-                        a_dev = self.anchor[name].to(p.device)
-                        loss += (o_dev * (p - a_dev).pow(2)).sum()
+                        loss += (self.omega[name] * (p - self.anchor[name]).pow(2)).sum()
             loss *= (self.si_lambda * lamb)
 
         # EWC Penalty
@@ -937,27 +891,12 @@ class UnifiedMemoryHandler:
                     if name in self.fisher_dict:
                         anchor = self.opt_param_dict.get(name)
                         if anchor is not None:
-                            # [V30.7] Cast back to param dtype (usually float32) from half-CPU
-                            f_dev = self.fisher_dict[name].to(p.device).to(p.dtype)
-                            anchor = anchor.to(p.device)
-                            # [V31.2] Shape Resilience Guard
-                            if p.shape == anchor.shape and p.shape == self.fisher_dict[name].shape:
-                                ewc_loss += (self.fisher_dict[name].to(p.device) * (p - anchor).pow(2)).sum()
+                            ewc_loss += (self.fisher_dict[name] * (p - anchor).pow(2)).sum()
             loss += ewc_loss * (self.ewc_lambda * lamb)
 
         return loss
 
     # --- Task Memory I/O ---
-
-    def to(self, device):
-        """Move all memory buffers to the specified device."""
-        self.omega = {k: v.to(device) for k, v in self.omega.items()}
-        self.anchor = {k: v.to(device) for k, v in self.anchor.items()}
-        self.fisher_dict = {k: v.to(device) for k, v in self.fisher_dict.items()}
-        self.opt_param_dict = {k: v.to(device) for k, v in self.opt_param_dict.items()}
-        self.sacred_mask = {k: v.to(device) for k, v in self.sacred_mask.items()}
-        self.omega_accum = {k: v.to(device) for k, v in self.omega_accum.items()}
-        return self
 
     def save_task_memory(self, name: Optional[str] = None, adapters=None, fingerprint=None):
         """Save current state (anchor + importance) to disk."""

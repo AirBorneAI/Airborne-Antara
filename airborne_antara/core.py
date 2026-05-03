@@ -683,7 +683,16 @@ class AdaptiveFramework(nn.Module):
                                 mask = self.memory.sacred_mask.get(p_name, None)
                                 if mask is not None:
                                     if not mask.any(): return grad
-                                    return grad * (~mask.to(grad.device))
+                                    
+                                    # [V31.6] ELASTIC SHUNT: Enable Positive BWT
+                                    # For backbone layers, we keep the hard-lock (0% flow) to prevent drift.
+                                    # For FC/Classifier heads, we allow 20% flow so they can adapt to the improved backbone.
+                                    if "fc" in p_name.lower() or "classifier" in p_name.lower() or "head" in p_name.lower():
+                                        multiplier = torch.where(mask.to(grad.device), 0.2, 1.0)
+                                        return grad * multiplier
+                                    else:
+                                        # Hard lock for backbone to maintain stability
+                                        return grad * (~mask.to(grad.device))
                             return grad
                         return hook
                     
@@ -1635,6 +1644,35 @@ class AdaptiveFramework(nn.Module):
             self.logger.error(f"Episodic Replay Outer Error: {e}")
         finally:
             self._internal_consolidation_mode = False
+
+    def on_task_complete(self, task_id: int):
+        """
+        [V15] IRON MIND: Finalize and anchor task knowledge.
+        Triggers importance consolidation and rebuilding of the Sacred Mask.
+        """
+        self.logger.info(f"🏁 Task {task_id} Complete. Transitioning to Iron Mind...")
+        
+        # 1. Final Consolidation (Refresh Omega/Fisher for the finished task)
+        if self.memory and self.memory.method != 'none':
+            self.memory.consolidate(
+                feedback_buffer=self.feedback_buffer,
+                current_step=self.step_count,
+                mode='FINAL'
+            )
+        
+        # 2. Update Sacred Mask (The Hard-Lock)
+        if self.governor:
+            self.governor.update_sacred_mask(self.memory, task_id, self.model)
+            
+        # 3. Enforce Protection (Gradient Shunting)
+        self.apply_cas_protection()
+        
+        # 4. Rebuild Restoration Cache (Post-Optimizer Recovery)
+        self._rebuild_restoration_cache()
+        
+        # 5. Clear transient buffers to free VRAM for next task
+        self.clear_cognitive_buffers()
+        self.logger.info(f"🛡️ Task {task_id} Knowledge Anchored. Iron Mind Active.")
 
     def consolidate_memory(self, **kwargs):
         """Wrapper for Unified Memory consolidation (Backward Compatibility)."""
