@@ -749,14 +749,28 @@ class UnifiedMemoryHandler:
         if not feedback_buffer.buffer:
             return
             
-        self.opt_param_dict = {
-            n: p.clone().detach().cpu() 
-            for n, p in self.model.named_parameters() 
-            if p.requires_grad
-        }
+        # [V30.8] IMMUTABLE EWC ANCHORING
+        # We only update anchors for plastic (non-sacred) weights.
+        # This prevents 'Sliding Window Amnesia' where the model drifts 
+        # away from Task 0 by anchoring to Task 1 state.
+        for n, p in self.model.named_parameters():
+            if not p.requires_grad: continue
+            
+            new_data = p.clone().detach().half().cpu()
+            if n not in self.opt_param_dict:
+                self.opt_param_dict[n] = new_data
+            else:
+                # If we have a sacred mask, keep the old anchor where mask is True
+                if n in self.sacred_mask:
+                    mask = self.sacred_mask[n].cpu()
+                    old_anc = self.opt_param_dict[n]
+                    self.opt_param_dict[n] = torch.where(mask, old_anc, new_data)
+                else:
+                    # Fallback: if no mask, this is the first consolidation or mask is missing
+                    self.opt_param_dict[n] = new_data
         
-        # [V30.4] Store Fisher on CPU to save 400MB+ VRAM on 8GB cards
-        fisher = {n: torch.zeros_like(p).cpu() for n, p in self.model.named_parameters() if p.requires_grad}
+        # [V30.7] Store Fisher in Half Precision on CPU
+        fisher = {n: torch.zeros_like(p).half().cpu() for n, p in self.model.named_parameters() if p.requires_grad}
         samples = list(feedback_buffer.buffer)[-sample_limit:]
         
         # [V30.3] Use eval() mode
@@ -801,14 +815,19 @@ class UnifiedMemoryHandler:
             
             for name, param in self.model.named_parameters():
                 if param.grad is not None:
-                    fisher[name] += (param.grad.data.cpu() ** 2) * len(batch_samples)
+                    # Accumulate in float32 for precision, but store in half
+                    fisher[name] += (param.grad.data.cpu().float() ** 2) * len(batch_samples)
             
-            # [V30.4] Explicit VRAM cleanup between batches
+            # [V30.7] Throttled Cleanup to prevent bottleneck
             del output, loss, batch_args, batch_targets
             self.model.zero_grad() 
-            if device.type == 'cuda':
-                torch.cuda.empty_cache()
-            gc.collect()
+            
+            batch_idx = i // batch_size
+            if batch_idx % 8 == 0:
+                self.logger.debug(f"   [EWC] Consolidation Progress: {i}/{len(samples)} samples...")
+                if device.type == 'cuda':
+                    torch.cuda.empty_cache()
+                gc.collect()
         
         if len(samples) > 0:
             for name in fisher:
@@ -822,9 +841,11 @@ class UnifiedMemoryHandler:
                 if n not in self.fisher_dict:
                     self.fisher_dict[n] = f_val
                 else:
-                    # Accumulate: New task importance + Old task importance
-                    self.fisher_dict[n] = (self.fisher_dict[n].cpu() * 0.9) + (f_val * 0.1)
+                    # EMA on CPU in half precision
+                    curr = self.fisher_dict[n].half()
+                    self.fisher_dict[n] = (curr * 0.9) + (f_val.half() * 0.1)
         
+        self.logger.info("   [EWC] Fisher Information Matrix stabilized.")
         gc.collect()
         if device.type == 'cuda':
             torch.cuda.empty_cache()
@@ -926,9 +947,9 @@ class UnifiedMemoryHandler:
                     if name in self.fisher_dict:
                         anchor = self.opt_param_dict.get(name)
                         if anchor is not None:
-                            # [V26.1] Ensure device affinity for EWC
-                            f_dev = self.fisher_dict[name].to(p.device)
-                            a_dev = anchor.to(p.device)
+                            # [V30.7] Cast back to param dtype (usually float32) from half-CPU
+                            f_dev = self.fisher_dict[name].to(p.device).to(p.dtype)
+                            a_dev = anchor.to(p.device).to(p.dtype)
                             ewc_loss += (f_dev * (p - a_dev).pow(2)).sum()
             loss += ewc_loss * (self.ewc_lambda * lamb)
 
