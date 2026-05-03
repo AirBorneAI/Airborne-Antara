@@ -739,9 +739,11 @@ class UnifiedMemoryHandler:
                 
                 self.saturation_level = total_sacred / num_total
 
-    def _consolidate_ewc_fisher_vectorized(self, feedback_buffer, sample_limit: int = 128, batch_size: int = 32):
+    def _consolidate_ewc_fisher_vectorized(self, feedback_buffer, sample_limit: int = 128, batch_size: int = 8):
         """
         Vectorized Fisher computation. 
+        [V30.3] Memory-safe: uses eval() mode to prevent BN stat allocation across MoE,
+        reduced batch size, and explicit VRAM cleanup between iterations.
         """
         if not feedback_buffer.buffer:
             return
@@ -755,7 +757,10 @@ class UnifiedMemoryHandler:
         fisher = {n: torch.zeros_like(p) for n, p in self.model.named_parameters() if p.requires_grad}
         samples = list(feedback_buffer.buffer)[-sample_limit:]
         
-        self.model.train() 
+        # [V30.3] Use eval() mode — Fisher only needs parameter gradients,
+        # NOT BN running stat tracking. train() mode causes BN layers across
+        # the entire MoE hierarchy to allocate gradient buffers, causing OOM.
+        self.model.eval()
         device = next(self.model.parameters()).device
         
         for i in range(0, len(samples), batch_size):
@@ -792,6 +797,11 @@ class UnifiedMemoryHandler:
             for name, param in self.model.named_parameters():
                 if param.grad is not None:
                     fisher[name] += (param.grad.data ** 2) * len(batch_samples)
+            
+            # [V30.3] Explicit VRAM cleanup between batches
+            del output, loss, batch_args, batch_targets
+            if device.type == 'cuda':
+                torch.cuda.empty_cache()
         
         if len(samples) > 0:
             for name in fisher:
