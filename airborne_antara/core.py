@@ -447,11 +447,10 @@ class AdaptiveFramework(nn.Module):
                     temperature=config.moe_temperature
                 ).to(self.device)
                 
-                # [V26.5] Critical: Force recursive device sync after deepcopying experts
-                for p in self.model.parameters():
-                    p.data = p.data.to(self.device)
-                for b in self.model.buffers():
-                    b.data = b.data.to(self.device)
+                # [V26.5] Redundant device sync removed to improve CPU startup performance
+                
+                # [V15.2] Re-install CAS hooks for the new distributed architecture
+                # Deferring until end of __init__ to avoid AttributeError: world_model
             else:
                 self.logger.info("Transforming Cortex into Sparse MoE...")
                 self.model = SparseMoE(
@@ -639,11 +638,14 @@ class AdaptiveFramework(nn.Module):
 
         # [V9.4] CAS Protocol: Apply Gradient Shunting Hooks
         self.apply_cas_protection()
-
         # [V26.1] Titan Soul: Strict Device Affinity
         self.to(self.device)
         self.logger.info(f"[TITAN] Cognitive Device Sync: {self.device}")
 
+        # 7. Finalize Protection
+        self.apply_cas_protection()
+        
+        self.logger.info("   [OK] Cognitive Architecture initialized.")
         self.logger.info("Airborne-Antara Framework Initialized (V9.4 Eternal Edition)")
 
     def to(self, device=None, *args, **kwargs):
@@ -661,17 +663,18 @@ class AdaptiveFramework(nn.Module):
         return self
 
     def apply_cas_protection(self):
-        """
-        [V9.4] Attaches gradient shunting hooks to all 'Sacred' parameters in all models.
-        Ensures BWT 0 by zeroing gradients at protected coordinates.
-        """
+        """[V15.2] Installs Gradient Shunts (CAS Hooks) on Sacred weights."""
+        if not hasattr(self, 'cas_hooks'): self.cas_hooks = []
+        
+        # Clear existing hooks to prevent redundant shunting
+        for h in self.cas_hooks:
+            h.remove()
         self.cas_hooks = []
-        # Support for multi-model protection (Backbone + World Model)
-        models_to_protect = [self.model]
-        if self.world_model:
-            models_to_protect.append(self.world_model)
+        
+        models_to_protect = self.memory.models if (hasattr(self, 'memory') and self.memory) else [self.model]
             
         for model in models_to_protect:
+            # 1. Parameter Gradients (Hard Shunting)
             for name, param in model.named_parameters():
                 if param.requires_grad:
                     def get_hook(p_name):
@@ -679,16 +682,23 @@ class AdaptiveFramework(nn.Module):
                             if self.memory and hasattr(self.memory, 'sacred_mask'):
                                 mask = self.memory.sacred_mask.get(p_name, None)
                                 if mask is not None:
-                                    # Optimization: Skip if mask is all False
-                                    if not mask.any():
-                                        return grad
-                                    # Shunt gradients
+                                    if not mask.any(): return grad
                                     return grad * (~mask.to(grad.device))
                             return grad
                         return hook
                     
                     h = param.register_hook(get_hook(name))
                     self.cas_hooks.append(h)
+            
+            # 2. [V15.2] BatchNorm Drift Protection
+            # If the weight of a BN layer is sacred, we lock its stats during training.
+            if self.memory:
+                for name, module in model.named_modules():
+                    if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                        w_name = f"{name}.weight"
+                        if w_name in self.memory.sacred_mask and self.memory.sacred_mask[w_name].any():
+                            module.track_running_stats = False
+                            module.eval() # Force eval mode for this specific layer even in training
         
         self.logger.info(f"[CAS] Protection Active: {len(self.cas_hooks)} Gradient Shunts installed across {len(models_to_protect)} models.")
 
@@ -1353,6 +1363,7 @@ class AdaptiveFramework(nn.Module):
                     )
                     self.consolidation_scheduler.record_consolidation(self.step_count)
                     self.logger.info(f"[MEMORY] Auto-consolidation triggered: {reason}")
+                    self.apply_cas_protection() # Enforce new sacred mask
                 finally:
                     self._internal_consolidation_mode = False
             
@@ -1481,12 +1492,42 @@ class AdaptiveFramework(nn.Module):
                 else: logits = outputs
 
 
-                # [V29] PURE CLASS-IL DREAMING: Global CE over all classes.
-                # Previous task-scoped slicing was erasing old class neurons during replay.
+                # [V27] Dynamic Task Mapping for Replay
+                num_classes_per_task = getattr(self.config, 'classes_per_task', 10)
+                
+                # [V17] TASK-SCOPED DREAMING: Compute per-sample task-scoped CE loss
+                # to prevent replay from suppressing other tasks' logits.
                 if logits.shape != batch_targets.shape and logits.dim() > batch_targets.dim() and batch_targets.dim() == 1:
                     if batch_targets.dtype != torch.long:
                         batch_targets = batch_targets.long()
-                    loss = F.cross_entropy(logits, batch_targets)
+                    
+                    # Check if all samples share the same task
+                    unique_tasks = set(sample_task_ids)
+                    if len(unique_tasks) == 1 and -1 not in unique_tasks:
+                        tid = sample_task_ids[0]
+                        if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
+                            s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
+                            loss = F.cross_entropy(logits[:, s:e], batch_targets % num_classes_per_task)
+                        else:
+                            loss = F.cross_entropy(logits, batch_targets)
+                    elif -1 not in unique_tasks:
+                        # Mixed-task batch: compute per-sample scoped loss
+                        per_sample_losses = []
+                        for i, tid in enumerate(sample_task_ids):
+                            # [V27] Dynamic Mapping
+                            if logits.shape[-1] >= (tid + 1) * num_classes_per_task:
+                                s, e = tid * num_classes_per_task, (tid + 1) * num_classes_per_task
+                                per_sample_losses.append(
+                                    F.cross_entropy(logits[i:i+1, s:e], (batch_targets[i:i+1] % num_classes_per_task))
+                                )
+                            else:
+                                per_sample_losses.append(
+                                    F.cross_entropy(logits[i:i+1], batch_targets[i:i+1])
+                                )
+                        loss = torch.stack(per_sample_losses).mean()
+                    else:
+                        # Fallback: no task_id available
+                        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_targets.view(-1))
                 elif logits.shape == batch_targets.shape:
                     loss = F.mse_loss(logits.float(), batch_targets.float())
                 else:
@@ -1596,6 +1637,7 @@ class AdaptiveFramework(nn.Module):
     def consolidate_memory(self, **kwargs):
         """Wrapper for Unified Memory consolidation (Backward Compatibility)."""
         result = self.memory.consolidate(**kwargs)
+        self.apply_cas_protection() # Enforce new sacred mask
         # [V26.0] Refresh the surgical restoration cache after importance is recalculated
         self._rebuild_restoration_cache()
         return result
@@ -1905,39 +1947,45 @@ class AdaptiveFramework(nn.Module):
             self._rebuild_restoration_cache()
             
         with torch.no_grad():
+            # 1. Restore Parameters (Weights/Bias)
             for param, mask, anchor in self._cached_sacred_params:
-                # Surgical Restoration (In-place indexed assignment)
                 param.data[mask] = anchor[mask]
 
-            # [V22] BN Cryostasis (Remains O(N_modules) but modules are fewer than params)
-            for name, m in self.named_modules():
-                if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
-                    if getattr(m, '_is_sacred_bn', False):
-                        m.eval()
-                        m.track_running_stats = False
-                        # Running stats are restored via anchor if available in memory
-                        # (handled in _rebuild_restoration_cache once per consolidation)
+            # 2. Restore BN Running Stats (Cryostasis)
+            if hasattr(self, '_cached_sacred_bn'):
+                for module, mean_anchor, var_anchor in self._cached_sacred_bn:
+                    if mean_anchor is not None: module.running_mean.copy_(mean_anchor)
+                    if var_anchor is not None: module.running_var.copy_(var_anchor)
+                    module.eval()
+                    module.track_running_stats = False
 
     def _rebuild_restoration_cache(self):
         """Build the list of references to sacred parameters and anchors."""
         self._cached_sacred_params = []
+        self._cached_sacred_bn = []
         if not self.memory: return
         
-        device = next(self.parameters()).device
+        # A. Parameter Cache
         for name, param in self.named_parameters():
             mask = self.memory.sacred_mask.get(name)
             if mask is not None and mask.any():
                 anchor = self.memory.anchor.get(name)
                 if anchor is not None:
-                    # [V26.3] Device Affinity: No transfers
                     self._cached_sacred_params.append((param, mask, anchor))
                     
-        # Tag BatchNormalization layers
+        # B. BN Buffer Cache (Cryostasis)
         for name, m in self.named_modules():
             if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
                 is_sacred = False
                 for p_name in ['weight', 'bias']:
-                    full_name = f"{name}.{p_name}" if name else p_name
-                    if full_name in self.memory.sacred_mask and self.memory.sacred_mask[full_name].any():
+                    full_p_name = f"{name}.{p_name}" if name else p_name
+                    if full_p_name in self.memory.sacred_mask and self.memory.sacred_mask[full_p_name].any():
                         is_sacred = True; break
+                
                 m._is_sacred_bn = is_sacred
+                if is_sacred:
+                    mean_key = f"{name}.running_mean"
+                    var_key = f"{name}.running_var"
+                    mean_anchor = self.memory.anchor.get(mean_key)
+                    var_anchor = self.memory.anchor.get(var_key)
+                    self._cached_sacred_bn.append((m, mean_anchor, var_anchor))

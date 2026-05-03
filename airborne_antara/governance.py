@@ -123,48 +123,48 @@ class KnowledgeGovernor:
                 cumulative[pid] = cumulative[pid] | m if pid in cumulative else m
                 curr_pos += p_n
 
-        # 5. Hard Guarantees (FC Head locking)
-        # ... (FC locking code remains same, ensuring task-specific rows are locked)
-        fc = getattr(backbone_ref, 'fc', None)
-        if fc is not None:
-            fc_w_id = id(fc.weight)
-            if fc_w_id not in cumulative:
-                cumulative[fc_w_id] = torch.zeros(fc.weight.shape, dtype=torch.bool, device=fc.weight.device)
-            # Dynamic task-specific row detection
-            num_classes = fc.weight.shape[0]
-            # Use 10 as default task count if not detectable, but aim for consistency
-            num_tasks_total = 10 
-            cpt = num_classes // num_tasks_total 
-            
-            for tid in memory_module.task_omega_snapshots:
-                s, e = tid * cpt, min((tid + 1) * cpt, fc.weight.shape[0])
-                cumulative[fc_w_id][s:e, :] = True
-            if hasattr(fc, 'bias') and fc.bias is not None:
-                fc_b_id = id(fc.bias)
-                if fc_b_id not in cumulative:
-                    cumulative[fc_b_id] = torch.zeros(fc.bias.shape, dtype=torch.bool, device=fc.bias.device)
-                for tid in memory_module.task_omega_snapshots:
-                    s, e = tid * cpt, min((tid + 1) * cpt, fc.bias.shape[0])
-                    cumulative[fc_b_id][s:e] = True
-
-        # 5b. MoE Gating Network locking
+        # 5. Hard Guarantees (FC Head locking & MoE Gating)
         for m_tracked in memory_module.models:
-            for name, module in m_tracked.named_modules():
-                if "gate" in name.lower() and hasattr(module, 'weight'):
-                    g_id = id(module.weight)
-                    if g_id not in cumulative:
-                        cumulative[g_id] = torch.zeros(module.weight.shape, dtype=torch.bool, device=module.weight.device)
-                    for tid in memory_module.task_omega_snapshots:
+            for m_name, module in m_tracked.named_modules():
+                # [V15.1] Recursive Head Detection
+                if hasattr(module, 'weight') and ("fc" in m_name.lower() or "gate" in m_name.lower()):
+                    p_w_id = id(module.weight)
+                    if p_w_id not in cumulative:
+                        cumulative[p_w_id] = torch.zeros(module.weight.shape, dtype=torch.bool, device=module.weight.device)
+                    
+                    # Logic for FC rows (Task-Specific Output)
+                    if "fc" in m_name.lower():
+                        num_classes = module.weight.shape[0]
+                        # [V29] Dynamic Task Density
+                        num_tasks_total = getattr(memory_module, 'total_tasks', 10) 
+                        cpt = num_classes // num_tasks_total 
+                        for tid in memory_module.task_omega_snapshots:
+                            s, e = tid * cpt, min((tid + 1) * cpt, num_classes)
+                            cumulative[p_w_id][s:e, :] = True
+                            
+                        if hasattr(module, 'bias') and module.bias is not None:
+                            p_b_id = id(module.bias)
+                            if p_b_id not in cumulative:
+                                cumulative[p_b_id] = torch.zeros(module.bias.shape, dtype=torch.bool, device=module.bias.device)
+                            for tid in memory_module.task_omega_snapshots:
+                                s, e = tid * cpt, min((tid + 1) * cpt, num_classes)
+                                cumulative[p_b_id][s:e] = True
+                    
+                    # Logic for Gate rows (Task-Specific Experts)
+                    elif "gate" in m_name.lower():
                         num_experts = module.weight.shape[0]
-                        target_expert = tid % num_experts
-                        cumulative[g_id][target_expert, :] = True
-                    if hasattr(module, 'bias') and module.bias is not None:
-                        g_b_id = id(module.bias)
-                        if g_b_id not in cumulative:
-                            cumulative[g_b_id] = torch.zeros(module.bias.shape, dtype=torch.bool, device=module.bias.device)
+                        num_tasks_total = getattr(memory_module, 'total_tasks', 10)
                         for tid in memory_module.task_omega_snapshots:
                             target_expert = tid % num_experts
-                            cumulative[g_b_id][target_expert] = True
+                            cumulative[p_w_id][target_expert, :] = True
+                            
+                        if hasattr(module, 'bias') and module.bias is not None:
+                            p_b_id = id(module.bias)
+                            if p_b_id not in cumulative:
+                                cumulative[p_b_id] = torch.zeros(module.bias.shape, dtype=torch.bool, device=module.bias.device)
+                            for tid in memory_module.task_omega_snapshots:
+                                target_expert = tid % num_experts
+                                cumulative[p_b_id][target_expert] = True
 
         # 6. Apply to Unified Memory
         memory_module.param_id_to_mask = cumulative
@@ -174,10 +174,10 @@ class KnowledgeGovernor:
             if pid in all_names:
                 memory_module.sacred_mask[all_names[pid]] = mask.to(mask.device)
         
-        # Calculate Saturation
+        # Calculate Saturation (V30 Fix: Sum across ALL tracked models)
         total_sacred = sum(m.sum().item() for m in cumulative.values())
-        num_total = sum(p.numel() for p in backbone_ref.parameters() if p.requires_grad)
-        memory_module.saturation_level = total_sacred / num_total
+        num_total = sum(p.numel() for m in memory_module.models for p in m.parameters() if p.requires_grad)
+        memory_module.saturation_level = total_sacred / max(1, num_total)
         
         self.logger.info(f"🛡️ Equilibrium Protocol Active (V9.6). Global Ceiling: {self.quota*100}%.")
         print(f"  [SENTIENT] Sacred Mask Updated. Global Saturation: {memory_module.saturation_level:.2%}")
