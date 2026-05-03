@@ -708,7 +708,7 @@ class AdaptiveFramework(nn.Module):
         """
         if hasattr(self, 'slow_weights') and self.config.use_lookahead:
             self.slow_weights = {
-                n: p.data.clone().detach()
+                n: p.data.clone().detach().cpu().half() # [V31.1] Force to CPU Half to save 1GB VRAM
                 for n, p in self.model.named_parameters()
                 if p.requires_grad
             }

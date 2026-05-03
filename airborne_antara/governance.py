@@ -75,13 +75,15 @@ class KnowledgeGovernor:
                 'pct_80': pct_80
             }
 
-        # 4. Rebuild Global Mask from all snapshots using 'Equilibrium Protocol' (Balanced V9.7)
-        cumulative = {}
-        num_tasks_total = getattr(memory_module, 'total_tasks', 10)
-        # [V30.11] Headroom-Aware Quota: If saturation is low (<50% of budget), 
-        # allow tasks to be 2x more aggressive in anchoring knowledge.
+        # [V31.2] DYNAMIC TASK GOVERNANCE: 
+        # If total_tasks is not set, we assume a rolling horizon based on current count + buffer.
+        num_tasks_seen = len(memory_module.task_omega_snapshots)
+        num_tasks_total = getattr(memory_module, 'total_tasks', max(10, num_tasks_seen + 5))
+        
+        # Headroom-Aware Quota Scaling
         current_saturation = getattr(memory_module, 'saturation_level', 0.0)
-        headroom_multiplier = 2.0 if current_saturation < (self.quota * 0.5) else 1.0
+        # If we have lots of room, allow aggressive foundation building (2.5x multiplier)
+        headroom_multiplier = 2.5 if current_saturation < (self.quota * 0.4) else 1.2
         BASE_TASK_TARGET = (self.quota / max(1, num_tasks_total)) * headroom_multiplier
         
         # Calculate individual quotas with saturation-aware dampening
