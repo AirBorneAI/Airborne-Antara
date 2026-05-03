@@ -78,8 +78,11 @@ class KnowledgeGovernor:
         # 4. Rebuild Global Mask from all snapshots using 'Equilibrium Protocol' (Balanced V9.7)
         cumulative = {}
         num_tasks_total = getattr(memory_module, 'total_tasks', 10)
-        # [V30.2] Elastic Quota: Divide global quota by expected tasks
-        BASE_TASK_TARGET = self.quota / max(1, num_tasks_total) 
+        # [V30.11] Headroom-Aware Quota: If saturation is low (<50% of budget), 
+        # allow tasks to be 2x more aggressive in anchoring knowledge.
+        current_saturation = getattr(memory_module, 'saturation_level', 0.0)
+        headroom_multiplier = 2.0 if current_saturation < (self.quota * 0.5) else 1.0
+        BASE_TASK_TARGET = (self.quota / max(1, num_tasks_total)) * headroom_multiplier
         
         # Calculate individual quotas with saturation-aware dampening
         task_quotas = {}

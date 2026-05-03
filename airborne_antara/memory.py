@@ -842,9 +842,9 @@ class UnifiedMemoryHandler:
                 if n not in self.fisher_dict:
                     self.fisher_dict[n] = f_val
                 else:
-                    # [V30.10] EMA on CPU, storing final result in half precision
+                    # [V30.11] Force result back to half to prevent 'Lazy Promotion' VRAM leak
                     curr = self.fisher_dict[n].half()
-                    self.fisher_dict[n] = (curr * 0.9) + (f_val.half() * 0.1)
+                    self.fisher_dict[n] = ((curr * 0.9) + (f_val.detach().cpu().half() * 0.1)).half()
         
         self.logger.info("   [EWC] Fisher Information Matrix stabilized.")
         gc.collect()
