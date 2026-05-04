@@ -2209,9 +2209,10 @@ class AdaptiveFramework(nn.Module):
 
         with torch.no_grad():
             for param, mask, anchor in self._cached_sacred_params:
-                # [V31.7] Efficient masked copy using in-place where
-                # anchor must be on the same device as param
-                param.data[mask] = anchor[mask].to(param.device)
+                # [V31.8] Device Affinity: Ensure mask is on same device as anchor for indexing,
+                # and then move the result to param device.
+                mask_cpu = mask.to(anchor.device)
+                param.data[mask] = anchor[mask_cpu].to(param.device)
 
             # 2. Restore BN Running Stats (Active Cryostasis)
             # [V31.8] WARRIOR MODE: Re-enabled to prevent Normalization Drift.
