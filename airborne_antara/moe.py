@@ -133,6 +133,13 @@ class GatingNetwork(nn.Module):
         # [V31.8] STRATEGIC MODE: Expert Gini Regularization
         # Gini Index encourages uniform load balancing. 
         # Higher Gini = Higher diversity (fewer bottlenecks).
+        batch_size = top_k_indices.size(0)
+        mask = torch.zeros(batch_size, self.gate.out_features, device=x.device)
+        mask.scatter_(1, top_k_indices, weights)
+        importance = mask.sum(dim=0)
+        mean_imp = importance.mean() + 1e-6
+        var_imp = importance.var()
+        
         gini_importance = weights.sum(dim=0)
         gini_importance = gini_importance / (gini_importance.sum() + 1e-8)
         gini_loss = 1.0 - torch.sum(gini_importance**2)

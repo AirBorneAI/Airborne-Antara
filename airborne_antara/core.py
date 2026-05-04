@@ -24,6 +24,7 @@ import time
 import math
 from enum import Enum
 import json
+import copy
 
 # Import Unified Memory, Meta-Controller, and Consciousness
 # NOTE: We use .consciousness_v2 as requested for the SOTA module
