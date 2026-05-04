@@ -734,7 +734,7 @@ class AdaptiveFramework(nn.Module):
         """
         if hasattr(self, 'slow_weights') and self.config.use_lookahead:
             self.slow_weights = {
-                n: p.data.clone().detach().cpu().float() # [V31.7] FP32 to prevent underflow of small weights (Bug R-3)
+                n: p.data.clone().detach().to(self.device).float() # [V31.8] Keep on active device; FP32 for stability.
                 for n, p in self.model.named_parameters()
                 if p.requires_grad
             }
@@ -1218,7 +1218,8 @@ class AdaptiveFramework(nn.Module):
                     fast = p.data
                     
                     # [V26.2] Strict Device Casting for Slow Weights
-                    slow = self.slow_weights[n]
+                    # [V31.8] Robust device sync to prevent cross-device RuntimeError
+                    slow = self.slow_weights[n].to(dev)
                     alpha = float(getattr(self, 'lookahead_alpha', 0.5))
                     
                     new_slow = slow + alpha * (fast - slow)
