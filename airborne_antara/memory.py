@@ -691,14 +691,20 @@ class UnifiedMemoryHandler:
                     # 2. Anchor Buffers (BN running stats)
                     for name, b in model.named_buffers():
                         if 'running_mean' in name or 'running_var' in name:
+                            unique_name = f"m{m_idx}_{name}"
                             is_sacred_bn = False
                             prefix = name.rsplit('.', 1)[0]
-                            w_name = f"{prefix}.weight"
+                            w_name = f"m{m_idx}_{prefix}.weight" # [V31.7] Bug R-8 Fix: Added m_idx prefix
                             if w_name in self.sacred_mask and self.sacred_mask[w_name].any():
                                 is_sacred_bn = True
                             
-                            if not is_sacred_bn or name not in self.anchor:
-                                self.anchor[name] = b.data.clone().detach()
+                            if not is_sacred_bn or unique_name not in self.anchor:
+                                self.anchor[unique_name] = b.data.clone().detach().float().cpu() # [V31.7] Use unique name
+                            else:
+                                # Selective update for plastic parts
+                                mask = self.sacred_mask[w_name] # BN usually shares mask with weight
+                                old_anc = self.anchor[unique_name].to(b.device)
+                                self.anchor[unique_name] = torch.where(mask, old_anc, b.data.clone().detach().float()).cpu()
         
         # 2. Consolidate EWC (Requires GRAD for backward pass)
         if self.method in ['ewc', 'hybrid'] and feedback_buffer is not None:
@@ -708,10 +714,20 @@ class UnifiedMemoryHandler:
         if self.use_ogd and feedback_buffer is not None:
             self._consolidate_ogd_subspaces(feedback_buffer)
         
-        # [V9.4] CAS Protocol: Update Sacred Core and Saturation
-        # [V30.2] Bypass if Governor is active to prevent quota dilution
-        if not hasattr(self, 'governor') or self.governor is None:
-            self._update_sacred_core()
+        # [V31.8] THE MISSING LINK: Capture Task Snapshot for KnowledgeGovernor
+        # This ensures SI (Synaptic Intelligence) and EWC (Fisher) contribute to the Iron Mind.
+        if mode == 'FINAL' and 'task_id' in kwargs:
+            tid = kwargs['task_id']
+            snapshot = {}
+            for m_idx, model in enumerate(self.models):
+                for name, p in model.named_parameters():
+                    unique_name = f"m{m_idx}_{name}"
+                    # Combine SI (omega) and EWC (fisher) for the ultimate importance map
+                    imp = self.omega.get(unique_name, torch.zeros_like(p)).cpu().clone()
+                    if unique_name in self.fisher_dict:
+                        imp += self.fisher_dict[unique_name].cpu().to(imp.dtype)
+                    snapshot[unique_name] = imp
+            self.task_omega_snapshots[tid] = snapshot
 
         self.last_consolidation_step = current_step
         self.logger.info(f"🔒 Consolidation complete. Saturation: {self.saturation_level*100:.2f}%")
@@ -860,8 +876,7 @@ class UnifiedMemoryHandler:
             
             # [V30.7] Throttled Cleanup to prevent bottleneck
             del output, loss, batch_args, batch_targets
-            self.model.zero_grad() 
-            
+            for m in self.models: m.zero_grad() # [V31.7] Bug R-7 Fix: Zero ALL models to prevent grad accumulation            
             batch_idx = i // batch_size
             if batch_idx % 8 == 0:
                 self.logger.debug(f"   [EWC] Consolidation Progress: {i}/{len(samples)} samples...")

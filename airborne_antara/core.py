@@ -182,7 +182,7 @@ class AdaptiveFrameworkConfig:
             use_prioritized_replay=True,
             adaptive_lambda=True,
             enable_consciousness=True,
-            ewc_lambda=150.0,
+            ewc_lambda=600.0,
             dream_interval=2,
             dream_batch_size=32
         )
@@ -726,7 +726,7 @@ class AdaptiveFramework(nn.Module):
         """
         if hasattr(self, 'slow_weights') and self.config.use_lookahead:
             self.slow_weights = {
-                n: p.data.clone().detach().cpu().half() # [V31.1] Force to CPU Half to save 1GB VRAM
+                n: p.data.clone().detach().cpu().float() # [V31.7] FP32 to prevent underflow of small weights (Bug R-3)
                 for n, p in self.model.named_parameters()
                 if p.requires_grad
             }
@@ -1797,8 +1797,8 @@ class AdaptiveFramework(nn.Module):
         with torch.no_grad():
             # 1. Forward Pass
             # This handles Perception, MoE Routing, and Introspection automatically
-            # [V17] Pass task_id so MoE routes through the correct expert during eval
-            outputs, log_var, affine_modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id)
+            # [V31.7] Bug R-6 Fix: Never pass task_id during inference to avoid "oracle" leakage in Class-IL.
+            outputs, log_var, affine_modifiers, moe_indices = self.forward(*model_inputs, task_id=None)
             
             # Extract main prediction
             if hasattr(outputs, 'logits'):
@@ -2061,19 +2061,19 @@ class AdaptiveFramework(nn.Module):
                         self._cached_sacred_params.append((param, mask, anchor))
                     
         # B. BN Buffer Cache (Cryostasis)
-        for model in models_to_track:
+        for m_idx, model in enumerate(models_to_track):
             for name, m in model.named_modules():
                 if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
                     is_sacred = False
                     for p_name in ['weight', 'bias']:
-                        full_p_name = f"{name}.{p_name}" if name else p_name
+                        full_p_name = f"m{m_idx}_{name}.{p_name}" if name else f"m{m_idx}_{p_name}"
                         if full_p_name in self.memory.sacred_mask and self.memory.sacred_mask[full_p_name].any():
                             is_sacred = True; break
                     
                     m._is_sacred_bn = is_sacred
                     if is_sacred:
-                        mean_key = f"{name}.running_mean"
-                        var_key = f"{name}.running_var"
+                        mean_key = f"m{m_idx}_{name}.running_mean" if name else f"m{m_idx}_running_mean"
+                        var_key = f"m{m_idx}_{name}.running_var" if name else f"m{m_idx}_running_var"
                         mean_anchor = self.memory.anchor.get(mean_key)
                         var_anchor = self.memory.anchor.get(var_key)
                         self._cached_sacred_bn.append((m, mean_anchor, var_anchor))
