@@ -89,7 +89,7 @@ class AdaptiveFrameworkConfig:
     # Z-Score Thresholds
     novelty_z_threshold: float = 2.0
     survival_z_threshold: float = 4.0
-    enable_dreaming: bool = False # [V26.5] Zero-Exemplar Protocol
+    enable_dreaming: bool = True # [WARRIOR MODE] Re-enabled Experience Replay
     enable_tracing: bool = False
     trace_max_records: int = 1000
     
@@ -179,9 +179,11 @@ class AdaptiveFrameworkConfig:
             use_amp=torch.cuda.is_available(),
             compile_model=True,
             memory_type='hybrid',
+            use_ogd=True,
             use_prioritized_replay=True,
             adaptive_lambda=True,
             enable_consciousness=True,
+            enable_dreaming=True,
             ewc_lambda=600.0,
             dream_interval=2,
             dream_batch_size=32
@@ -202,6 +204,7 @@ class PerformanceSnapshot:
     timestamp: float
     episode: int
     task_id: int = -1  # [V17] Track which task produced this experience
+    latent_signature: Optional[torch.Tensor] = None # [V31.8] ETERNAL MIND: For consistency checks
     
     def to_device(self, device):
         def _to_device(x):
@@ -211,6 +214,8 @@ class PerformanceSnapshot:
             return x
 
         self.input_args = tuple(_to_device(arg) for arg in self.input_args)
+        if self.latent_signature is not None:
+            self.latent_signature = self.latent_signature.to(device)
         self.input_kwargs = {k: _to_device(v) for k, v in self.input_kwargs.items()}
         self.output = self.output.to(device)
         self.target = self.target.to(device)
@@ -227,7 +232,7 @@ class FeedbackBuffer:
         self.buffer: List[PerformanceSnapshot] = []
         self.total_seen = 0
         
-    def add(self, input_args: tuple, input_kwargs: dict, output: torch.Tensor, target: torch.Tensor, reward: float, loss: float, task_id: int = -1):
+    def add(self, input_args: tuple, input_kwargs: dict, output: torch.Tensor, target: torch.Tensor, reward: float, loss: float, task_id: int = -1, latent_signature: Optional[torch.Tensor] = None):
         # Move to CPU immediately to save VRAM
         def _to_cpu(x):
             if isinstance(x, torch.Tensor):
@@ -250,7 +255,8 @@ class FeedbackBuffer:
             loss=loss,
             timestamp=datetime.now().timestamp(),
             episode=self.total_seen,
-            task_id=task_id
+            task_id=task_id,
+            latent_signature=_to_cpu(latent_signature) if latent_signature is not None else None
         )
         if len(self.buffer) < self.capacity:
             self.buffer.append(snapshot)
@@ -744,6 +750,14 @@ class AdaptiveFramework(nn.Module):
                 current_step=self.step_count,
                 mode='FINAL'
             )
+
+        # [V31.8] STRATEGIC MODE: Holographic Anchor Lockdown
+        # If this is Task 0, we capture a snapshot of the perception latent space
+        # to use as a 'forbidden zone' for subsequent tasks.
+        if task_id == 0 and self.perception and hasattr(self, '_last_latent'):
+            if self._last_latent is not None:
+                # Capture the LAST seen features of Task 0 as the 'Sacred Anchor'
+                self.perception.holographic_anchor = self._last_latent.detach().cpu()
         
         # 2. Update Governance (Iron Mind Quota)
         if self.governor:
@@ -765,6 +779,42 @@ class AdaptiveFramework(nn.Module):
             if hasattr(self.model, 'set_temperature'):
                 self.model.set_temperature(new_temp)
             self.logger.info(f"🔥 MoE Sharpening: Temperature adjusted to {new_temp:.4f}")
+
+        # [V31.8] STRATEGIC MODE: Task-Informed Initialization
+        # After Task 0, we use its successful state to 'seed' the other experts.
+        # This provides a 'soft landing' for the next task.
+        if task_id == 0 and hasattr(self.model, 'distill_expert'):
+            # Expert 0 is our 'Titanium' baseline from Task 0.
+            # We seed the others with a noisy copy to break symmetry.
+            self.logger.info("🧪 Distilling Task 0 knowledge to new experts...")
+            for i in range(1, getattr(self.model, 'num_experts', 1)):
+                self.model.distill_expert(source_idx=0, target_idx=i, noise_scale=0.01)
+
+        # [V31.8] ETERNAL MIND: Neural Resurrection (Cleanup & Re-allocation)
+        # After Task 0, we prune 10% of the LEAST important weights.
+        # This creates 'Neural Room' for Task 1 without affecting Task 0 accuracy.
+        if task_id == 0:
+            self.logger.info("🧹 Performing Neural Resurrection cleanup...")
+            for name, p in self.model.named_parameters():
+                unique_name = f"m0_{name}"
+                if unique_name in self.memory.omega:
+                    omega = self.memory.omega[unique_name]
+                    if omega.numel() > 10:
+                        # Find 10th percentile of importance
+                        threshold = torch.quantile(omega.float(), 0.10)
+                        prune_mask = (omega <= threshold)
+                        # 1. Zero the pruned weights to create a clean slate
+                        p.data[prune_mask] = 0.0
+                        # 2. Resurrect: Remove from sacred mask so subsequent tasks can own them
+                        if unique_name in self.memory.sacred_mask:
+                            self.memory.sacred_mask[unique_name][prune_mask] = False
+
+        # [V31.8] STRATEGIC MODE: Teacher Snapshot
+        # Store a copy of the model as a teacher for self-distillation during dreaming.
+        self.logger.info("👨‍🏫 Snapshotting Teacher Model...")
+        self.teacher_model = copy.deepcopy(self.model).to(self.device).eval()
+        for p in self.teacher_model.parameters():
+            p.requires_grad = False
     
         # 4. Reset Optimization State (Lookahead weights sync — prevents overwriting sacred coords)
         if self.config.use_lookahead:
@@ -971,8 +1021,13 @@ class AdaptiveFramework(nn.Module):
         """
         # [V12] Fix: Use get instead of pop to ensure task_id reaches MoE backbone
         task_id = kwargs.get('task_id') or getattr(self, '_current_task_id', None)
+        consciousness_state = kwargs.get('consciousness_state')
+        
         if task_id is not None:
             kwargs['task_id'] = task_id
+        if consciousness_state is not None:
+            kwargs['consciousness_state'] = consciousness_state
+            
         self._current_task_id = task_id
         fused_latent = None
         if self.perception and len(args) == 1 and isinstance(args[0], dict):
@@ -980,7 +1035,7 @@ class AdaptiveFramework(nn.Module):
             fused_latent = self.perception(args[0])
             if fused_latent is not None:
                 # Pass fused latent to base model
-                output = self.model(fused_latent)
+                output = self.model(fused_latent, **kwargs)
             else:
                 output = self.model(*args, **kwargs)
         else:
@@ -1198,8 +1253,10 @@ class AdaptiveFramework(nn.Module):
         try:
             # [V9.2] Use modern torch.amp.autocast
             with torch.amp.autocast('cuda', enabled=self.config.use_amp and self.device.type == 'cuda'):
-                # [V12] Fix: Pass task_id to forward for expert routing
-                output, log_var, modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id)
+                # [V31.8] STRATEGIC MODE: Consciousness Feedback Loop
+                # Pass the LAST step's consciousness state to help route THIS step.
+                last_cons = getattr(self, '_last_consciousness_state', None)
+                output, log_var, modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id, consciousness_state=last_cons)
                 
                 # Unpack standard model outputs
                 if isinstance(output, tuple):
@@ -1221,15 +1278,24 @@ class AdaptiveFramework(nn.Module):
                         internal_mode=self._internal_consolidation_mode
                     )
                     consciousness_metrics = obs
+                    # [V31.8] STRATEGIC MODE: Capture consciousness state for feedback
+                    self._last_consciousness_state = obs.get('consciousness_state')
                 
                 # 3. Compute Base Loss
                 if target_data.dtype in [torch.float16, torch.float32, torch.float64] or logits.shape == target_data.shape:
                     loss = F.mse_loss(logits, target_data)
                 else:
-                    # [V29] Pure Class-IL: Global cross-entropy over ALL classes.
                     # Task-local slicing was causing 0% accuracy on previous tasks
                     # by zeroing gradient signal to old class neurons.
-                    loss = F.cross_entropy(logits, target_data.view(-1))
+                    
+                    # [V31.8] STRATEGIC MODE: Dynamic Label Smoothing (Cognitive Damping)
+                    # We use surprise to damp the learning signal.
+                    smoothing = 0.0
+                    if 'surprise' in consciousness_metrics:
+                        s_val = float(consciousness_metrics['surprise'])
+                        smoothing = max(0.0, min(0.2, s_val * 0.05))
+                        
+                    loss = F.cross_entropy(logits, target_data.view(-1), label_smoothing=smoothing)
                 
                 # 4. Memory Regularization
                 reg_loss = torch.tensor(0.0, device=self.device)
@@ -1270,8 +1336,12 @@ class AdaptiveFramework(nn.Module):
                 if hasattr(self.model, 'get_aux_loss'):
                     aux_loss = self.model.get_aux_loss() * 0.1
 
+                # [V31.8] STRATEGIC MODE: Surgical Weight Decay (The Shunt)
+                # We apply extra decay to non-sacred weights to force neuron recycling.
+                surgical_wd = self._compute_surgical_weight_decay(wd_rate=1e-4)
+
                 # Aggregation logic inside autocast
-                total_loss = loss + reg_loss + aux_loss + (wm_loss * 0.5)
+                total_loss = loss + reg_loss + aux_loss + (wm_loss * 0.5) + surgical_wd
         
             if total_loss is None:
                 raise RuntimeError("Cortex Critical: total_loss was never computed in train_step")
@@ -1300,6 +1370,25 @@ class AdaptiveFramework(nn.Module):
             
             # SINGLE BACKWARD PASS (The "Killshot" for graph errors)
             self.scaler.scale(final_loss).backward()
+            
+            # [V31.8] STRATEGIC MODE: Gradient Noise Annealing (Neural Lubricant)
+            # Inject noise during task transitions to escape old local minima.
+            steps_since_start = getattr(self, '_steps_since_task_start', 0)
+            if steps_since_start < 100 and task_id > 0:
+                for p in self.model.parameters():
+                    if p.grad is not None:
+                        # Decaying noise: starts at 1%, hits 0% at step 100
+                        noise = torch.randn_like(p.grad) * (p.grad.std() + 1e-8) * 0.01 * (1.0 - steps_since_start / 100.0)
+                        p.grad.add_(noise)
+
+            # [V31.8] ETERNAL MIND: Batch-Level LR Gating (System 3)
+            # Scale learning based on novelty. Low surprise = Low learning rate.
+            # This prevents over-writing established knowledge with familiar noise.
+            surprise_val = wm_loss.item() if 'wm_loss' in locals() else 1.0
+            lr_gate = min(1.0, max(0.2, surprise_val / 4.0)) # Linear gate in [0.2, 1.0]
+            for p in self.model.parameters():
+                if p.grad is not None:
+                    p.grad.mul_(lr_gate)
             
             # 6. Unscale & Clip
             self.scaler.unscale_(self.optimizer)
@@ -1361,6 +1450,15 @@ class AdaptiveFramework(nn.Module):
             # [V26.0] Maintenance: Only clear cache after consolidation or periodically
             # Aggressive clearing in every step tanks performance.
             if self.step_count % 100 == 0:
+                if self.device.type == 'cuda':
+                    torch.cuda.empty_cache()
+
+            # [V31.8] STRATEGIC MODE: Track task-local progression
+            if not hasattr(self, '_last_task_id_seen') or self._last_task_id_seen != task_id:
+                self._steps_since_task_start = 0
+                self._last_task_id_seen = task_id
+            else:
+                self._steps_since_task_start = getattr(self, '_steps_since_task_start', 0) + 1
                 import gc
                 gc.collect()
                 if torch.cuda.is_available():
@@ -1441,7 +1539,9 @@ class AdaptiveFramework(nn.Module):
 
         # [V16] Automatically populate feedback buffer for Replay/Dreaming/Consolidation
         if self.feedback_buffer:
-            self.feedback_buffer.add(model_inputs, {}, logits, target_data, 0.0, loss.item(), task_id=task_id)
+            # [V31.8] Capture latent for Eternal Mind consistency
+            latent = features.detach() if 'features' in locals() else None
+            self.feedback_buffer.add(model_inputs, {}, logits, target_data, 0.0, loss.item(), task_id=task_id, latent_signature=latent)
             # [V17] Also populate prioritized_buffer so dreaming can sample
             if self.prioritized_buffer:
                 snapshot = self.feedback_buffer.buffer[-1]  # Get the just-added snapshot
@@ -1497,9 +1597,9 @@ class AdaptiveFramework(nn.Module):
                         use_priorities=True
                     )
                 else:
-                    samples = random.sample(
-                        self.feedback_buffer.buffer,
-                        effective_batch
+                    samples = self.feedback_buffer.sample_batch(
+                        effective_batch, 
+                        use_priorities=True
                     )
                     
                 if not samples:
@@ -1544,6 +1644,17 @@ class AdaptiveFramework(nn.Module):
                 elif isinstance(outputs, tuple): logits = outputs[0]
                 else: logits = outputs
 
+                # [V31.8] ETERNAL MIND: Latent Consistency Loss
+                # Force the internal 'Mind State' to stay identical for replayed tasks.
+                consistency_loss = torch.tensor(0.0, device=self.device)
+                stored_latents = [s.latent_signature for s in samples]
+                if all(l is not None for l in stored_latents):
+                    stored_latents_batch = torch.cat([l.to(self.device) for l in stored_latents], dim=0)
+                    # Use the latent captured by the Perception Gateway in the forward pass
+                    current_latents = getattr(self, '_last_fused_latent', None)
+                    if current_latents is not None and current_latents.size() == stored_latents_batch.size():
+                        consistency_loss = F.mse_loss(current_latents, stored_latents_batch)
+
 
                 # [V27] Dynamic Task Mapping for Replay
                 num_classes_per_task = getattr(self.config, 'classes_per_task', 10)
@@ -1578,10 +1689,26 @@ class AdaptiveFramework(nn.Module):
                     )
                     metrics['reg_loss'] = reg_loss.item()
 
+                # [V31.8] STRATEGIC MODE: Self-Distillation (The Soft Echo)
+                # Use the Teacher model to get soft labels if available.
+                # This preserves 'Dark Knowledge' (inter-class relationships).
+                targets = batch_targets
+                distill_loss = torch.tensor(0.0, device=self.device)
+                
+                if hasattr(self, 'teacher_model') and self.teacher_model is not None:
+                    with torch.no_grad():
+                        # [V31.8] Soften the teacher's knowledge
+                        teacher_logits = self.teacher_model(batch_args)
+                        if isinstance(teacher_logits, tuple): teacher_logits = teacher_logits[0]
+                        soft_targets = F.softmax(teacher_logits / 2.0, dim=1) # Temp=2.0
+                    
+                    # Distillation Loss (KL Divergence)
+                    student_log_probs = F.log_softmax(logits / 2.0, dim=1)
+                    distill_loss = F.kl_div(student_log_probs, soft_targets, reduction='batchmean') * (2.0 ** 2)
+                
                 # [V17] Total Dreaming Loss aggregation
-                # Experts already handled in 'loss' += aux above, 
-                # but we explicitly calculate any remaining components.
-                total_loss = loss + reg_loss
+                # We combine hard labels, soft distillation, and latent consistency.
+                total_loss = loss + reg_loss + (distill_loss * 0.5) + (consistency_loss * 1.0)
                 
                 # [V9.1] Capture weights BEFORE update for SI path integral
                 param_before = self.memory.before_step_snapshot() if self.memory else None
@@ -1591,21 +1718,32 @@ class AdaptiveFramework(nn.Module):
                     # [V31.7] Apply Elastic Protection (8% Head Shunt) during Replay
                     if self.memory and self.memory.is_enabled():
                         self.apply_cas_protection(elastic_limit=0.08)
-                    
+                    # 6. Backward Pass via Scaler
                     self.scaler.scale(total_loss).backward()
-                    
+
+                    # [V31.8] STRATEGIC MODE: Gradient Noise Annealing (Neural Lubricant)
+                    # Inject noise during task transitions to escape old local minima.
+                    steps_since_start = getattr(self, '_steps_since_task_start', 0)
+                    if steps_since_start < 100 and sample_task_ids[0] > 0:
+                        for p in self.model.parameters():
+                            if p.grad is not None:
+                                # Decaying noise: starts at 1%, hits 0% at step 100
+                                noise = torch.randn_like(p.grad) * (p.grad.std() + 1e-8) * 0.01 * (1.0 - steps_since_start / 100.0)
+                                p.grad.add_(noise)
+
+                    # 7. Optimizer Steps via Scaler
                     # [V9.1] SI Accumulation MUST happen after backward but before optimizer clears grads
                     if self.memory and self.memory.method != 'none':
-                        self.memory.accumulate_path(param_before)
+                        self.memory.accumulate_importance(param_before)
                         
                     self.scaler.step(self.optimizer)
-                    self.scaler.update() # [V31.7] FIX: Update after dream backward
+                    self.scaler.update() 
                 else:
                     total_loss.backward()
                     
                     # [V9.1] SI Accumulation MUST happen after backward but before optimizer clears grads
                     if self.memory and self.memory.method != 'none':
-                        self.memory.accumulate_path(param_before)
+                        self.memory.accumulate_importance(param_before)
                         
                     self.optimizer.step()
                 
@@ -1882,7 +2020,9 @@ class AdaptiveFramework(nn.Module):
                         output=prediction,
                         target=prediction, # Self-consistency
                         reward=0.0,
-                        loss=0.0
+                        loss=0.0,
+                        task_id=task_id,
+                        latent_signature=features
                     )
 
         # 6. [Surgical Cleanup] Reset modifiers to prevent cross-batch thought persistence
@@ -2032,16 +2172,44 @@ class AdaptiveFramework(nn.Module):
                 # anchor must be on the same device as param
                 param.data[mask] = anchor[mask].to(param.device)
 
-            # 2. Restore BN Running Stats (Cryostasis - Disabled for Fluidity)
-            # [V31.7] We no longer manually overwrite BN stats during training.
-            # This allows the model to adapt its normalization to the full 10-task distribution.
-            # if hasattr(self, '_cached_sacred_bn'):
-            #     for module, mean_anchor, var_anchor in self._cached_sacred_bn:
-            #         if mean_anchor is not None: module.running_mean.copy_(mean_anchor)
-            #         if var_anchor is not None: module.running_var.copy_(var_anchor)
+            # 2. Restore BN Running Stats (Active Cryostasis)
+            # [V31.8] WARRIOR MODE: Re-enabled to prevent Normalization Drift.
+            if hasattr(self, '_cached_sacred_bn'):
+                for module, mean_anchor, var_anchor in self._cached_sacred_bn:
+                    if mean_anchor is not None: module.running_mean.copy_(mean_anchor.to(module.running_mean.device))
+                    if var_anchor is not None: module.running_var.copy_(var_anchor.to(module.running_var.device))
                     # [V31.7] FIX: Do NOT set to eval() or disable track_running_stats.
                     # Task 1 needs to adapt BN stats to its own distribution to learn.
                     # We rely on weight/bias anchoring to preserve the 'Titanium' foundation.
+
+    def _compute_surgical_weight_decay(self, wd_rate: float = 1e-4) -> torch.Tensor:
+        """
+        [V31.8] STRATEGIC MODE: Differential Weight Decay.
+        Applies L2 penalty only to NON-sacred parameters.
+        Forces the AI to 'recycle' unimportant neurons.
+        """
+        total_wd = torch.tensor(0.0, device=self.device)
+        if not self.memory: return total_wd
+        
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad: continue
+            
+            # Map name to memory key
+            # Standard MoE names are m{idx}_{name}
+            unique_name = f"m0_{name}" # Assuming expert 0 for backbone
+            mask = self.memory.sacred_mask.get(unique_name)
+            
+            if mask is not None:
+                # [V31.8] Heavy decay for non-sacred parts
+                # ~mask gives non-sacred coordinates
+                non_sacred_mask = (~mask).to(param.device)
+                if non_sacred_mask.any():
+                    total_wd += (param.data * non_sacred_mask).pow(2).sum() * wd_rate
+            else:
+                # No mask = All weights are fair game for decay
+                total_wd += param.pow(2).sum() * wd_rate
+                
+        return total_wd
 
     def _rebuild_restoration_cache(self):
         """Build the list of references to sacred parameters and anchors."""

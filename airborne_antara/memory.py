@@ -639,9 +639,10 @@ class UnifiedMemoryHandler:
                         if not p.requires_grad: continue
                         
                         unique_name = f"m{m_idx}_{name}"
-                        _accum = self.omega_accum.get(unique_name, torch.zeros_like(p))
+                        # [V31.8] Device Safety: Move buffers to p.device
+                        _accum = self.omega_accum.get(unique_name, torch.zeros_like(p)).to(p.device)
                         s = _accum
-                        anchor = self.anchor.get(unique_name, p.clone().detach())
+                        anchor = self.anchor.get(unique_name, p.clone().detach()).to(p.device)
                         
                         # Damping + Epsilon to prevent NaN
                         denom = (p.data - anchor).pow(2) + self.si_xi
@@ -650,7 +651,8 @@ class UnifiedMemoryHandler:
                         new_omega = s / denom
                         # Fuse and accumulate
                         new_omega = torch.nan_to_num(new_omega, nan=0.0, posinf=1e6, neginf=0.0).clamp(min=0.0, max=1e6)
-                        self.omega[unique_name] = self.omega.get(unique_name, torch.zeros_like(p)) + new_omega
+                        existing_omega = self.omega.get(unique_name, torch.zeros_like(p)).to(p.device)
+                        self.omega[unique_name] = existing_omega + new_omega
                         
                         # [V31.7] Selective Anchor Update:
                         # Keep Task 0 anchors frozen for sacred parts.
@@ -981,9 +983,9 @@ class UnifiedMemoryHandler:
             return torch.tensor(0.0, device=next(self.models[0].parameters()).device)
         
         loss = 0.0
-        # [V31.7] FIX: No more aggressive decay!
-        # Protection must stay strong to hit 50% Avg Acc.
-        base = {'BOOTSTRAP': 0.1, 'PANIC': 0.1, 'SURVIVAL': 0.5, 'NOVELTY': 1.0, 'NORMAL': 1.0}.get(adaptive_mode, 1.0)
+        # [V31.8] WARRIOR MODE: Protection must stay absolute.
+        # No more 0.0 penalty in Panic/Bootstrap. Minimum protection is 0.5.
+        base = {'BOOTSTRAP': 0.5, 'PANIC': 0.5, 'SURVIVAL': 0.8, 'NOVELTY': 1.0, 'NORMAL': 1.0}.get(adaptive_mode, 1.0)
         lamb = base 
         
         if lamb < 1e-4: return torch.tensor(0.0, device=next(self.models[0].parameters()).device)
@@ -1241,11 +1243,10 @@ class AdaptiveRegularization:
         self.mode_history = deque(maxlen=100)
 
     def get_lambda(self, mode: str, step_in_mode: int) -> float:
-        # Same logic as UnifiedMemoryHandler._get_adaptive_lambda
-        # but kept as a helper for external schedulers if needed
-        base = {'BOOTSTRAP': 0.0, 'PANIC': 0.0, 'SURVIVAL': 0.1, 'NOVELTY': 0.8, 'NORMAL': 0.4}.get(mode, 0.4)
-        decay = np.exp(-0.01 * step_in_mode)
-        val = self.base_lambda * base * decay
+        # [V31.8] WARRIOR MODE: Absolute, Flat Protection.
+        # Knowledge is non-negotiable. No decay, no zero-penalty windows.
+        base = {'BOOTSTRAP': 0.5, 'PANIC': 0.5, 'SURVIVAL': 0.8, 'NOVELTY': 1.0, 'NORMAL': 1.0}.get(mode, 1.0)
+        val = self.base_lambda * base
         self.mode_history.append((mode, val))
         return val
 

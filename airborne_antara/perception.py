@@ -174,4 +174,23 @@ class PerceptionGateway(nn.Module):
         if not encoded:
             return None
             
-        return self.fuser(encoded)
+        fused = self.fuser(encoded)
+        
+        # [V31.8] STRATEGIC MODE: Holographic Feature Shunting
+        # If we have a holographic anchor from Task 0, we dampen similar features
+        # to force Task 1 to learn its own neural space.
+        if hasattr(self, 'holographic_anchor') and self.holographic_anchor is not None:
+            with torch.no_grad():
+                # [B, S, D] -> [B, D]
+                curr_feat = fused.mean(dim=1)
+                anch_feat = self.holographic_anchor.mean(dim=1).to(fused.device)
+                
+                # Broad similarity across the batch
+                sim = F.cosine_similarity(curr_feat, anch_feat.mean(dim=0, keepdim=True), dim=-1)
+                
+                # Damping curve: High similarity (>0.7) leads to exponential shunting
+                # This makes Task 0 space 'expensive' for new gradients.
+                shunt = torch.exp(-F.relu(sim - 0.7) * 4.0).view(-1, 1, 1)
+                fused = fused * shunt
+                
+        return fused

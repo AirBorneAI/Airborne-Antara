@@ -659,13 +659,15 @@ class EnhancedConsciousnessCore(nn.Module):
                     self.confusion_level = 1.0 if uncertainty > 0.8 else (0.5 if uncertainty > 0.5 else 0.0)
 
                     if features.size(-1) == self.feature_dim:
-                        _, trace = self.global_workspace(features, thinking_steps=thinking_steps)
+                        workspace_out, trace = self.global_workspace(features, thinking_steps=thinking_steps)
+                        # Store the final 'thought' state for feedback loops
+                        self.last_workspace_state = workspace_out.detach()
                         # [OPTIMIZATION] Move trace to CPU to prevent VRAM leak
                         cpu_trace = [t.detach().cpu() for t in trace]
                         self.current_thought_trace = cpu_trace
                         self.thought_stream.append(cpu_trace)
                 except Exception:
-                    pass
+                    self.last_workspace_state = None
             else:
                 self.current_thought_trace = []
                 self.confusion_level = 0.0
@@ -709,7 +711,8 @@ class EnhancedConsciousnessCore(nn.Module):
             'emotion': self.current_emotional_state.name,
             'confusion': self.confusion_level,
             'importance': 1.0 + surprise + (1-confidence),
-            'learning_rate_multiplier': self.emotional_system.get_learning_multiplier(self.current_emotional_state)
+            'learning_rate_multiplier': self.emotional_system.get_learning_multiplier(self.current_emotional_state),
+            'consciousness_state': getattr(self, 'last_workspace_state', None)
         }
         
         # [V8.0] Expose for UI/Dashboard
