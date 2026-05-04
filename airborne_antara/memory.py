@@ -401,24 +401,22 @@ class RelationalGraphMemory(nn.Module):
 
         # 3. Capacity Management (Prune AFTER adding)
         if len(self.nodes) > self.capacity:
-            self.nodes.pop(0)
-            if self.feature_matrix is not None:
-                self.feature_matrix = self.feature_matrix[1:]
             self._prune_memory()
 
     def _prune_memory(self):
         """Remove the oldest node."""
+        if not self.nodes: return
+        
         removed_idx = 0 # FIFO
         self.nodes.pop(removed_idx)
         
         # Update Index
-        c_idx = self.node_to_cluster.pop(removed_idx)
-        if removed_idx in self.clusters[c_idx]:
-            self.clusters[c_idx].remove(removed_idx)
+        if removed_idx in self.node_to_cluster:
+            c_idx = self.node_to_cluster.pop(removed_idx)
+            if removed_idx in self.clusters[c_idx]:
+                self.clusters[c_idx].remove(removed_idx)
             
         # Shift indices in maps (Expensive but rare due to FIFO)
-        # Rebuilding index might be cleaner, but for now we just shift
-        # This is strictly for the Demo limit. Production would use Circular Buffer.
         new_clusters = {i: [] for i in range(self.num_clusters)}
         new_map = {}
         for old_i, c in self.node_to_cluster.items():
@@ -667,27 +665,28 @@ class UnifiedMemoryHandler:
 
                 # [V23] IMMUTABLE ANCHORING: Never overwrite anchors for already-sacred weights.
                 # This fixes 'Sliding Window Amnesia' where Task 0 drift is legalized at every task end.
-                for model in self.models:
+                for m_idx, model in enumerate(self.models):
                     # 1. Anchor Parameters (Weights/Bias)
                     for name, p in model.named_parameters():
                         if not p.requires_grad: continue
                         
+                        unique_name = f"m{m_idx}_{name}"
                         is_sacred = False
-                        if name in self.sacred_mask and self.sacred_mask[name].any():
+                        if unique_name in self.sacred_mask and self.sacred_mask[unique_name].any():
                             is_sacred = True
                         
                         if not is_sacred:
-                            # Fresh Anchor for plastic weights
-                            self.anchor[name] = p.data.clone().detach()
+                            # Fresh Anchor for plastic weights (Bug #11: Use Float32)
+                            self.anchor[unique_name] = p.data.clone().detach().float().cpu()
                         else:
                             # Selective update: only update plastic parts of partially sacred tensors
-                            mask = self.sacred_mask[name]
-                            if name not in self.anchor:
-                                self.anchor[name] = p.data.clone().detach()
+                            mask = self.sacred_mask[unique_name]
+                            if unique_name not in self.anchor:
+                                self.anchor[unique_name] = p.data.clone().detach().float().cpu()
                             else:
-                                old_anc = self.anchor[name]
+                                old_anc = self.anchor[unique_name].to(p.device)
                                 # Keep old anchor where mask is True, take new data where mask is False
-                                self.anchor[name] = torch.where(mask, old_anc, p.data.clone().detach())
+                                self.anchor[unique_name] = torch.where(mask, old_anc, p.data.clone().detach().float()).cpu()
 
                     # 2. Anchor Buffers (BN running stats)
                     for name, b in model.named_buffers():
@@ -805,8 +804,8 @@ class UnifiedMemoryHandler:
                     fisher[unique_name] = torch.zeros_like(p).float().cpu()
         samples = list(feedback_buffer.buffer)[-sample_limit:]
         
-        # [V30.3] Use eval() mode on primary backbone (Bug #3)
-        self.models[0].eval()
+        # [V30.3] Use eval() mode on ALL models (Bug #3)
+        for model in self.models: model.eval()
         device = next(self.models[0].parameters()).device
         
         # [V30.4] Aggressive pre-consolidation cleanup
@@ -831,10 +830,13 @@ class UnifiedMemoryHandler:
                 self.logger.debug(f"Failed to create EWC batch, skipping: {e}")
                 continue
             
-            self.models[0].zero_grad()
+            for model in self.models: model.zero_grad()
+            
             # [V31.7] AMP Autocast Support for numerical stability on CUDA
             with torch.amp.autocast(device_type=device.type, enabled=device.type == 'cuda'):
-                # Forward on primary backbone (or wrapper if self.models[0] is SparseMoE)
+                # Forward on primary backbone (Bug #3: Supporting multiple models requires joint loss)
+                # For now, we only compute Fisher based on the primary model's task loss,
+                # but we backprop through ALL models to get their gradients.
                 output = self.models[0](*batch_args)
                 if hasattr(output, 'logits'): output = output.logits
                 elif isinstance(output, tuple): output = output[0]
@@ -846,6 +848,7 @@ class UnifiedMemoryHandler:
                 else:
                     loss = F.mse_loss(output.float(), batch_targets.float())
             
+            # [V31.7] Bug #3 Fix: Backward through ALL tracked models
             loss.backward()
             
             for m_idx, model in enumerate(self.models):

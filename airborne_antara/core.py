@@ -755,6 +755,10 @@ class AdaptiveFramework(nn.Module):
         
         # 3. Entropy-Driven Expert Sharpening (Temperature Decay)
         if getattr(self.config, 'use_moe', False):
+            # [V31.7] Progressive Sharpening: Decay temperature by 15% per task.
+            base_temp = getattr(self.config, 'moe_temperature', 1.0)
+            new_temp = base_temp * (0.85 ** (task_id + 1))
+            
             # Clamp temp to prevent numerical instability. 
             # [V31.7] Floor-cap at 0.5 to preserve multi-task routing diversity.
             new_temp = max(new_temp, 0.5) 
@@ -1125,11 +1129,12 @@ class AdaptiveFramework(nn.Module):
                     new_slow = slow + alpha * (fast - slow)
                     
                     # [V17] Respect Sacred Mask: never overwrite protected coordinates
-                    mask = self.memory.sacred_mask.get(n) if getattr(self, 'memory', None) else None
+                    unique_name = f"m0_{n}"
+                    mask = self.memory.sacred_mask.get(unique_name) if getattr(self, 'memory', None) else None
                     if mask is not None and mask.any():
                         # [V26.5] FIX: Use the immutable anchor for sacred positions 
                         # instead of the potentially quantized slow_weight (FP16).
-                        anchor = self.memory.anchor.get(n)
+                        anchor = self.memory.anchor.get(unique_name)
                         if anchor is not None:
                             anchor_v = anchor.to(dev)
                             new_slow = torch.where(mask.to(dev), anchor_v, new_slow)
@@ -1578,6 +1583,9 @@ class AdaptiveFramework(nn.Module):
                 # but we explicitly calculate any remaining components.
                 total_loss = loss + reg_loss
                 
+                # [V9.1] Capture weights BEFORE update for SI path integral
+                param_before = self.memory.before_step_snapshot() if self.memory else None
+
                 # [V17] Hardened Replay: Use scaler if available
                 if hasattr(self, 'scaler'):
                     # [V31.7] Apply Elastic Protection (8% Head Shunt) during Replay
@@ -1585,10 +1593,20 @@ class AdaptiveFramework(nn.Module):
                         self.apply_cas_protection(elastic_limit=0.08)
                     
                     self.scaler.scale(total_loss).backward()
+                    
+                    # [V9.1] SI Accumulation MUST happen after backward but before optimizer clears grads
+                    if self.memory and self.memory.method != 'none':
+                        self.memory.accumulate_path(param_before)
+                        
                     self.scaler.step(self.optimizer)
                     self.scaler.update() # [V31.7] FIX: Update after dream backward
                 else:
                     total_loss.backward()
+                    
+                    # [V9.1] SI Accumulation MUST happen after backward but before optimizer clears grads
+                    if self.memory and self.memory.method != 'none':
+                        self.memory.accumulate_path(param_before)
+                        
                     self.optimizer.step()
                 
                 # [V17] Restore sacred weights after dreaming step
@@ -2033,11 +2051,12 @@ class AdaptiveFramework(nn.Module):
         
         # A. Parameter Cache
         models_to_track = self.memory.models if self.memory.models else [self.model]
-        for model in models_to_track:
+        for m_idx, model in enumerate(models_to_track):
             for name, param in model.named_parameters():
-                mask = self.memory.sacred_mask.get(name)
+                unique_name = f"m{m_idx}_{name}"
+                mask = self.memory.sacred_mask.get(unique_name)
                 if mask is not None and mask.any():
-                    anchor = self.memory.anchor.get(name)
+                    anchor = self.memory.anchor.get(unique_name)
                     if anchor is not None:
                         self._cached_sacred_params.append((param, mask, anchor))
                     

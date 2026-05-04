@@ -386,6 +386,12 @@ class ReptileOptimizer:
         # Update Anchor for next cycle
         self.anchor_weights = self._clone_weights()
 
+    def reset_task(self):
+        """[V10.0] Reset anchors at task boundaries to prevent inter-task drift."""
+        self.anchor_weights = None
+        self.step_counter = 0
+        self.logger.info("🌀 Reptile anchors reset for new task.")
+
 
 # ==================== META-CONTROLLER ====================
 
@@ -445,6 +451,12 @@ class MetaController(nn.Module):
         
         self.step_count += 1
         return metrics
+
+    def reset_task(self):
+        """[V10.0] Propagate task reset to sub-modules."""
+        if hasattr(self, 'reptile'):
+            self.reptile.reset_task()
+        self.step_count = 0
 
     def to(self, device):
         """[V26.4] Device Affinity: Propagate to sub-components."""

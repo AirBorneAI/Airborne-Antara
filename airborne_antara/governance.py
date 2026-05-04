@@ -176,17 +176,33 @@ class KnowledgeGovernor:
 
         # 6. Apply to Unified Memory
         memory_module.param_id_to_mask = cumulative
-        all_names = {id(p): name for m in memory_module.models for name, p in m.named_parameters()}
+        all_unique_names = {id(p): f"m{m_idx}_{name}" for m_idx, m in enumerate(memory_module.models) for name, p in m.named_parameters()}
 
         for pid, mask in cumulative.items():
-            if pid in all_names:
-                memory_module.sacred_mask[all_names[pid]] = mask.to(mask.device)
+            if pid in all_unique_names:
+                memory_module.sacred_mask[all_unique_names[pid]] = mask.to(mask.device)
         
         # Calculate Saturation (V30 Fix: Sum across ALL tracked models)
         total_sacred = sum(m.sum().item() for m in cumulative.values())
         num_total = sum(p.numel() for m in memory_module.models for p in m.parameters() if p.requires_grad)
         memory_module.saturation_level = total_sacred / max(1, num_total)
         
+        # [V31.7] Bug #8 Fix: Enforce Quota Ceiling (Emergency Pruning)
+        if memory_module.saturation_level > self.quota:
+            self.logger.warning(f"⚠️ Saturation ({memory_module.saturation_level:.2%}) exceeds quota ({self.quota:.2%}). Pruning mask...")
+            # Proportional pruning of masks to fit within quota
+            ratio = self.quota / memory_module.saturation_level
+            for pid, mask in cumulative.items():
+                # Protect small critical layers (FC heads, Gates) from random pruning
+                if mask.numel() > 512: 
+                    # Use deterministic-ish pruning based on random sampling
+                    prune_indices = torch.rand(mask.shape, device=mask.device) < ratio
+                    cumulative[pid] &= prune_indices
+            
+            # Recalculate final saturation
+            total_sacred = sum(m.sum().item() for m in cumulative.values())
+            memory_module.saturation_level = total_sacred / max(1, num_total)
+
         self.logger.info(f"🛡️ Equilibrium Protocol Active (V9.6). Global Ceiling: {self.quota*100}%.")
         print(f"  [SENTIENT] Sacred Mask Updated. Global Saturation: {memory_module.saturation_level:.2%}")
         print(f"  [SENTIENT] Knowledge Anchored. Locked Parameters: {total_sacred:,.0f} / {num_total:,} ({memory_module.saturation_level:.2%})")
