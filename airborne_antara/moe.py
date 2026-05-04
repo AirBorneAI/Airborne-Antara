@@ -73,17 +73,20 @@ class GatingNetwork(nn.Module):
         # [V17] Hard Reset of local cache to prevent graph leakage
         self.aux_loss = torch.tensor(0.0, device=x.device)
         
-        # x: [batch_size, input_dim] or [batch_size, seq, input_dim]
-        if x.dim() == 3:
-            # SOTA Sequence Pooling: [B, S, D] -> [B, D]
-            x_flat = x.mean(dim=1)
-        elif x.dim() == 4:
-            # [V31.7] Image Spatial Pooling: [B, C, H, W] -> [B, C]
-            # This handles Bug #4 by ensuring image features are pooled before gating.
-            x_flat = F.adaptive_avg_pool2d(x, (1, 1)).view(x.size(0), -1)
-        elif x.dim() > 4:
-            # Flatten multi-dim inputs
-            x_flat = x.view(x.size(0), -1)
+        # x: [batch_size, input_dim] or [batch_size, seq, input_dim] or [B, C, H, W]
+        # [V31.7] DYNAMIC SHAPE HARMONIZER: Handle both pixels and pooled features
+        if x.dim() >= 3:
+            x_flat_all = x.view(x.size(0), -1)
+            if x_flat_all.size(-1) == self.gate.in_features:
+                x_flat = x_flat_all
+            elif x.dim() == 3:
+                # SOTA Sequence Pooling: [B, S, D] -> [B, D]
+                x_flat = x.mean(dim=1)
+            elif x.dim() == 4:
+                # [V31.7] Image Spatial Pooling: [B, C, H, W] -> [B, C]
+                x_flat = F.adaptive_avg_pool2d(x, (1, 1)).view(x.size(0), -1)
+            else:
+                x_flat = x_flat_all
         else:
             x_flat = x
             
