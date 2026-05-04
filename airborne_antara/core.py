@@ -1541,7 +1541,8 @@ class AdaptiveFramework(nn.Module):
         # [V16] Automatically populate feedback buffer for Replay/Dreaming/Consolidation
         if self.feedback_buffer:
             # [V31.8] Capture latent for Eternal Mind consistency
-            latent = features.detach() if 'features' in locals() else None
+            # [BUGFIX R-9] Guard against models that return None for features
+            latent = features.detach() if ('features' in locals() and features is not None) else None
             self.feedback_buffer.add(model_inputs, {}, logits, target_data, 0.0, loss.item(), task_id=task_id, latent_signature=latent)
             # [V17] Also populate prioritized_buffer so dreaming can sample
             if self.prioritized_buffer:
