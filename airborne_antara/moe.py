@@ -248,7 +248,9 @@ class SparseMoE(nn.Module):
             selected_weights = weights[batch_idx, k_idx]
             view_shape = [len(batch_idx)] + [1] * (expert_out.dim() - 1)
             selected_weights = selected_weights.view(*view_shape)
-            final_output = final_output.index_add(0, batch_idx, expert_out * selected_weights)
+            # [V31.8] ETERNAL MIND: Ensure type alignment for index_add (Critical for AMP)
+            contribution = (expert_out * selected_weights).to(final_output.dtype)
+            final_output = final_output.index_add(0, batch_idx, contribution)
             
         # [V31.8] Restore BN mode for Expert 0 if we locked it
         if locked_bn:
@@ -311,7 +313,9 @@ class HierarchicalMoE(nn.Module):
                 final_output = torch.zeros(out_shape, device=x.device, dtype=domain_out.dtype)
             
             w = domain_weights[batch_idx, 0].view(len(batch_idx), *([1] * (domain_out.dim() - 1)))
-            final_output = final_output.index_add(0, batch_idx, domain_out * w)
+            # [V31.8] ETERNAL MIND: Ensure type alignment for index_add (Critical for AMP)
+            contribution = (domain_out * w).to(final_output.dtype)
+            final_output = final_output.index_add(0, batch_idx, contribution)
             
         return final_output, domain_indices
 
