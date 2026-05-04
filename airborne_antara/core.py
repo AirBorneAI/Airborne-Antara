@@ -25,6 +25,7 @@ import math
 from enum import Enum
 import json
 import copy
+import io
 
 # Import Unified Memory, Meta-Controller, and Consciousness
 # NOTE: We use .consciousness_v2 as requested for the SOTA module
@@ -813,7 +814,18 @@ class AdaptiveFramework(nn.Module):
         # [V31.8] STRATEGIC MODE: Teacher Snapshot
         # Store a copy of the model as a teacher for self-distillation during dreaming.
         self.logger.info("👨‍🏫 Snapshotting Teacher Model...")
-        self.teacher_model = copy.deepcopy(self.model).to(self.device).eval()
+        # [BUGFIX R-10] Use robust snapshotting to avoid deepcopy issues with non-leaf tensors
+        try:
+            self.teacher_model = copy.deepcopy(self.model)
+        except Exception as e:
+            self.logger.warning(f"[SENTIENT] Standard deepcopy failed: {e}. Falling back to serialization.")
+            import io
+            buf = io.BytesIO()
+            torch.save(self.model, buf)
+            buf.seek(0)
+            self.teacher_model = torch.load(buf, weights_only=False)
+            
+        self.teacher_model = self.teacher_model.to(self.device).eval()
         for p in self.teacher_model.parameters():
             p.requires_grad = False
     
