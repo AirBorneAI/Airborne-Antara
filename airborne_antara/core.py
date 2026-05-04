@@ -814,7 +814,11 @@ class AdaptiveFramework(nn.Module):
         # [V31.8] STRATEGIC MODE: Teacher Snapshot
         # Store a copy of the model as a teacher for self-distillation during dreaming.
         self.logger.info("👨‍🏫 Snapshotting Teacher Model...")
-        # [BUGFIX R-10] Use robust snapshotting to avoid deepcopy issues with non-leaf tensors
+        
+        # [BUGFIX R-11] Clear all hooks to enable deepcopy/serialization (PicklingError avoidance)
+        # We must strip hooks from the active model, snapshot, then re-install.
+        self._clear_all_hooks()
+        
         try:
             self.teacher_model = copy.deepcopy(self.model)
         except Exception as e:
@@ -828,6 +832,10 @@ class AdaptiveFramework(nn.Module):
         self.teacher_model = self.teacher_model.to(self.device).eval()
         for p in self.teacher_model.parameters():
             p.requires_grad = False
+
+        # [V31.8] Restoration: Re-install hooks on the active model
+        self._init_adapters_and_hooks()
+        self.apply_cas_protection()
     
         # 4. Reset Optimization State (Lookahead weights sync — prevents overwriting sacred coords)
         if self.config.use_lookahead:
@@ -964,6 +972,25 @@ class AdaptiveFramework(nn.Module):
         elif self.regime == CognitiveRegime.GHOST:
             self.config.si_lambda = base_si * 10.0
             self.config.novelty_threshold = 0.5
+
+    def _clear_all_hooks(self):
+        """[V31.8] Recursively removes all Antara hooks from the model to allow clean serialization."""
+        # 1. Clear backward hooks (CAS Shunts) from all tracked modules
+        if hasattr(self, 'cas_hooks'):
+            for h in self.cas_hooks:
+                try: h.remove()
+                except Exception: pass
+            self.cas_hooks = []
+            
+        # 2. Clear forward hooks (Telemetry/Adapters) recursively
+        for m in self.model.modules():
+            if hasattr(m, '_forward_hooks'):
+                m._forward_hooks.clear()
+            if hasattr(m, '_backward_hooks'):
+                # Also clear standard module backward hooks just in case
+                m._backward_hooks.clear()
+            if hasattr(m, '_antara_hook_installed'):
+                del m._antara_hook_installed
 
     def _generate_fast_hook(self, layer_idx, module_type):
         def hook(module, inputs, output):
