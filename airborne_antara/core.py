@@ -997,36 +997,21 @@ class AdaptiveFramework(nn.Module):
             try:
                 inp = output
                 if isinstance(inp, torch.Tensor):
-                    # Fast Telemetry
-                    with torch.no_grad():
-                        if inp.numel() > 0:
-                            # Use simple stats to avoid sync overhead
-                            # [V26.5] Robust device sync for telemetry
-                            if inp.device != self.telemetry_buffer.device:
-                                inp = inp.to(self.telemetry_buffer.device)
-                                
-                            mean_val = inp.mean().detach()
-                            var_val = inp.var(unbiased=False).detach()
-                            
-                            # Double check buffer device right before assignment
-                            self.telemetry_buffer[layer_idx, 0] = mean_val
-                            self.telemetry_buffer[layer_idx, 1] = var_val
-                            self.telemetry_buffer[layer_idx, 2] = 0 # Optimized out
-                            self.telemetry_buffer[layer_idx, 3] = 0 # Optimized out
+                    # [BUGFIX] Fast Telemetry (inp.mean / inp.var) REMOVED to prevent A100 CUDA sync deadlocks
 
-                    # Apply Adapter
-                    if self.adapter_bank:
+                    # Apply Adapter — skip for frozen modules (frozen expert outputs must not
+                    # be modified by trainable adapters, which would bypass weight freezing)
+                    _mod_frozen = (list(module.parameters(recurse=False)) and
+                                   not any(p.requires_grad for p in module.parameters(recurse=False)))
+                    if self.adapter_bank and not _mod_frozen:
                         adapted = self.adapter_bank.apply(layer_idx, inp, module_type)
                         if adapted is not inp:
                             inp = adapted
 
-                    # [V8.0] Apply Sentient Affine Modifiers (System 2)
-                    if self.current_modifiers is not None:
-                        # [V17] Detach modifiers during internal/eval passes to prevent graph leaks
+                    # [BUGFIX] Apply Sentient Affine Modifiers ONLY during training 
+                    # to prevent Task 1 leakage from suppressing Task 0 during evaluation
+                    if self.training and getattr(self, 'current_modifiers', None) is not None:
                         mods = self.current_modifiers
-                        if self._internal_consolidation_mode or not self.training:
-                            mods = mods.detach()
-                            
                         if mods.dim() == 1:
                             scale = 1.0 + mods[0]
                             shift = mods[1]
