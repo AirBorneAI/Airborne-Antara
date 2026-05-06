@@ -223,10 +223,23 @@ class SparseMoE(nn.Module):
                 target_expert = task_id % self.num_experts
                 locked_experts = [i for i in range(self.num_experts) if i != target_expert]
 
+        # [V31.8] Identity-Aware Lockdown: Ensure shared backbones are strictly locked
         for idx in locked_experts:
             for m in self.experts[idx].modules():
                 if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
                     m.eval()
+                    # Force track_running_stats off temporarily if we want absolute zero drift
+                    # m.track_running_stats = False 
+        
+        # [V31.8] ETERNAL MIND: Path-Specific BN Lockdown
+        # Expert 0 is our 'Sacred Foundation'. When training on new tasks, 
+        # we lock its BN layers to prevent statistic poisoning.
+        locked_bn = False
+        if self.training and task_id is not None and task_id > 0:
+            for m in self.experts[0].modules():
+                if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                    m.eval() # Force to eval mode
+            locked_bn = True
 
         # [V31.8] STRATEGIC MODE: Expert Dropout (The Ghost Expert)
         # Randomly mute one expert during training to force expert redundancy.

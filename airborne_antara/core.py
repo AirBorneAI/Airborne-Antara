@@ -2290,9 +2290,12 @@ class AdaptiveFramework(nn.Module):
                         self._cached_sacred_params.append((param, mask, anchor))
                     
         # B. BN Buffer Cache (Cryostasis)
+        seen_modules = set()
         for m_idx, model in enumerate(models_to_track):
             for name, m in model.named_modules():
                 if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                    if id(m) in seen_modules: continue
+                    
                     is_sacred = False
                     for p_name in ['weight', 'bias']:
                         full_p_name = f"m{m_idx}_{name}.{p_name}" if name else f"m{m_idx}_{p_name}"
@@ -2308,6 +2311,7 @@ class AdaptiveFramework(nn.Module):
                     
                     m._is_sacred_bn = is_sacred
                     if is_sacred:
+                        seen_modules.add(id(m))
                         mean_key = f"m{m_idx}_{name}.running_mean" if name else f"m{m_idx}_running_mean"
                         var_key = f"m{m_idx}_{name}.running_var" if name else f"m{m_idx}_running_var"
                         mean_anchor = self.memory.anchor.get(mean_key)
