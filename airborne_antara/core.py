@@ -1054,6 +1054,10 @@ class AdaptiveFramework(nn.Module):
             kwargs['consciousness_state'] = consciousness_state
             
         self._current_task_id = task_id
+        # [V31.8] Internal Mode: Signal MoE to lock experts during Maintenance/Replay
+        int_mode = getattr(self, '_internal_consolidation_mode', False)
+        kwargs['internal_mode'] = int_mode
+        
         fused_latent = None
         if self.perception and len(args) == 1 and isinstance(args[0], dict):
             # Dictionary input (Multi-Modal)
@@ -1657,20 +1661,36 @@ class AdaptiveFramework(nn.Module):
                 # But for simplicity in V8.0, we'll just do manual forward/backward here to avoid complexity
                 self.optimizer.zero_grad()
                 
-                # [V17] Determine the task_id for this replay batch.
+                # [V31.8] Group by Task ID for Absolute Expert Isolation (NeurIPS Killshot)
                 # All samples in the batch may come from different tasks,
-                # so we group by task_id and compute scoped loss for each.
-                sample_task_ids = [getattr(s, 'task_id', -1) for s in samples]
-                dream_task_id = sample_task_ids[0] if len(sample_task_ids) > 0 and sample_task_ids[0] >= 0 else None
+                # so we group by task_id and compute scoped forward passes.
+                task_groups = {}
+                for i, tid in enumerate(sample_task_ids):
+                    if tid not in task_groups: task_groups[tid] = []
+                    task_groups[tid].append(i)
                 
-                if isinstance(batch_args, list):
-                    outputs = self.model(*batch_args, task_id=dream_task_id)
-                else:
-                    outputs = self.model(batch_args, task_id=dream_task_id)
+                all_logits = []
+                for tid, idxs in task_groups.items():
+                    # Scoped sub-batch
+                    sub_args = []
+                    if isinstance(batch_args, list):
+                        sub_args = [arg[idxs] for arg in batch_args]
+                    else:
+                        # Batch args might be a single tensor in list if num_args=1
+                        sub_args = [batch_args[0][idxs]]
                     
-                if hasattr(outputs, 'logits'): logits = outputs[0] if getattr(outputs, 'logits', None) is None else outputs.logits
-                elif isinstance(outputs, tuple): logits = outputs[0]
-                else: logits = outputs
+                    actual_tid = tid if tid >= 0 else None
+                    sub_outputs = self.model(*sub_args, task_id=actual_tid, internal_mode=True)
+                    
+                    if hasattr(sub_outputs, 'logits'): sl = sub_outputs[0] if getattr(sub_outputs, 'logits', None) is None else sub_outputs.logits
+                    elif isinstance(sub_outputs, tuple): sl = sub_outputs[0]
+                    else: sl = sub_outputs
+                    all_logits.append((idxs, sl))
+                
+                # Reassemble logits in original order for consistency loss
+                logits = torch.zeros((len(samples), all_logits[0][1].size(-1)), device=self.device)
+                for idxs, sl in all_logits:
+                    logits[idxs] = sl
 
                 # [V31.8] ETERNAL MIND: Latent Consistency Loss
                 # Force the internal 'Mind State' to stay identical for replayed tasks.
@@ -1812,20 +1832,32 @@ class AdaptiveFramework(nn.Module):
                 # 3. Replay (Manual Step)
                 self.optimizer.zero_grad()
                 
-                with torch.amp.autocast('cuda', enabled=self.config.use_amp and self.device.type == 'cuda'):
-                    outputs = self.model(batch_x)
-                    if hasattr(outputs, 'logits'): logits = outputs.logits
-                    elif isinstance(outputs, tuple): logits = outputs[0]
-                    else: logits = outputs
+                # [V31.8] Group Episodic Replay by Task ID
+                task_ids = [getattr(m, 'task_id', None) for m in valid_memories]
+                unique_tids = set(task_ids)
+                
+                logits = torch.zeros((len(valid_memories), self.model.num_classes if hasattr(self.model, 'num_classes') else 100), device=self.device)
+                
+                for tid in unique_tids:
+                    idxs = [i for i, t in enumerate(task_ids) if t == tid]
+                    sub_x = batch_x[idxs]
                     
-                    if logits.shape == batch_y.shape:
-                        loss = F.mse_loss(logits.float(), batch_y.float())
+                    with torch.amp.autocast('cuda', enabled=self.config.use_amp and self.device.type == 'cuda'):
+                        sub_outputs = self.model(sub_x, task_id=tid, internal_mode=True)
+                        if hasattr(sub_outputs, 'logits'): sl = sub_outputs.logits
+                        elif isinstance(sub_outputs, tuple): sl = sub_outputs[0]
+                        else: sl = sub_outputs
+                        
+                        logits[idxs] = sl
+                
+                if logits.shape == batch_y.shape:
+                    loss = F.mse_loss(logits.float(), batch_y.float())
+                else:
+                    if logits.dim() > batch_y.dim() and batch_y.dim() == 1:
+                         if batch_y.dtype != torch.long: batch_y = batch_y.long()
+                         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1))
                     else:
-                        if logits.dim() > batch_y.dim() and batch_y.dim() == 1:
-                             if batch_y.dtype != torch.long: batch_y = batch_y.long()
-                             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1))
-                        else:
-                             loss = F.mse_loss(logits.float(), batch_y.float())
+                         loss = F.mse_loss(logits.float(), batch_y.float())
                 
                 # [V17] Hardened Episodic Replay: Use scaler
                 if hasattr(self, 'scaler') and self.scaler is not None:
@@ -2266,6 +2298,13 @@ class AdaptiveFramework(nn.Module):
                         full_p_name = f"m{m_idx}_{name}.{p_name}" if name else f"m{m_idx}_{p_name}"
                         if full_p_name in self.memory.sacred_mask and self.memory.sacred_mask[full_p_name].any():
                             is_sacred = True; break
+                    
+                    # [V31.8] ETERNAL MIND: Anchor-Based Cryostasis (Absolute Restoration)
+                    # Even if weights aren't in the sacred_mask quota, if we have a mean anchor,
+                    # we must restore it to prevent statistic drift on foundational knowledge.
+                    mean_key = f"m{m_idx}_{name}.running_mean" if name else f"m{m_idx}_running_mean"
+                    if mean_key in self.memory.anchor:
+                        is_sacred = True
                     
                     m._is_sacred_bn = is_sacred
                     if is_sacred:
