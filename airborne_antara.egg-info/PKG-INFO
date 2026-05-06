@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: airborne-antara
-Version: 0.1.142
+Version: 0.1.143
 Summary: Production-grade adaptive meta-learning framework for continual model improvement. Implements research DOI: 10.5281/zenodo.17839490.
 Author-email: AirborneHRS Team <friday@airbornehrs.in>
 License-Expression: MIT
