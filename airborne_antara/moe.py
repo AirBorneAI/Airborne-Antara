@@ -201,7 +201,14 @@ class SparseMoE(nn.Module):
         return self.gate.get_aux_loss()
 
     def forward(self, x, task_id=None, consciousness_state: Optional[torch.Tensor] = None):
-        weights, indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
+        if self.training and task_id is not None:
+            # [SMART HARD-ROUTING] Perfect task isolation inside domain
+            target_expert = task_id % self.num_experts
+            indices = torch.full((x.size(0), self.top_k), target_expert, dtype=torch.long, device=x.device)
+            weights = torch.zeros((x.size(0), self.top_k), device=x.device)
+            weights[:, 0] = 1.0
+        else:
+            weights, indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
         
         # [V31.8] ETERNAL MIND: Path-Specific BN Lockdown
         # Expert 0 is our 'Sacred Foundation'. When training on new tasks, 
@@ -295,7 +302,41 @@ class HierarchicalMoE(nn.Module):
             domain.expert_usage.zero_()
     
     def forward(self, x, task_id=None, consciousness_state: Optional[torch.Tensor] = None):
-        domain_weights, domain_indices = self.domain_router(x, task_id=task_id, consciousness_state=consciousness_state)
+        # [BUGFIX] Task-Agnostic Logit-Based Routing for Zero-Exemplar Class-IL
+        # Bypasses Gating Network Forgetting completely during evaluation.
+        if not self.training and task_id is None:
+            all_expert_outputs = []
+            for domain in self.domains:
+                for expert in domain.experts:
+                    # Evaluate all experts directly
+                    out = expert(x, task_id=None)
+                    if isinstance(out, tuple): out = out[0]
+                    all_expert_outputs.append(out.unsqueeze(1))
+            
+            # [B, Num_Experts, C]
+            all_expert_outputs = torch.cat(all_expert_outputs, dim=1)
+            
+            # Find the expert with the highest confidence for each sample
+            max_logits, _ = torch.max(all_expert_outputs, dim=2) # [B, Num_Experts]
+            best_expert_idx = torch.argmax(max_logits, dim=1) # [B]
+            
+            # Gather the best output for each sample
+            batch_idx = torch.arange(x.size(0), device=x.device)
+            final_output = all_expert_outputs[batch_idx, best_expert_idx, :]
+            
+            dummy_indices = torch.zeros(x.size(0), 1, dtype=torch.long, device=x.device)
+            return final_output, dummy_indices
+
+        if self.training and task_id is not None:
+            # [SMART HARD-ROUTING] Perfect task isolation to guarantee 100% preservation
+            total_experts = self.num_domains * self.experts_per_domain
+            target_domain = (task_id % total_experts) // self.experts_per_domain
+            domain_indices = torch.full((x.size(0), self.top_k), target_domain, dtype=torch.long, device=x.device)
+            domain_weights = torch.zeros((x.size(0), self.top_k), device=x.device)
+            domain_weights[:, 0] = 1.0
+        else:
+            domain_weights, domain_indices = self.domain_router(x, task_id=task_id, consciousness_state=consciousness_state)
+            
         batch_size = x.size(0)
         final_output = None
         

@@ -1661,11 +1661,12 @@ class AdaptiveFramework(nn.Module):
                 # All samples in the batch may come from different tasks,
                 # so we group by task_id and compute scoped loss for each.
                 sample_task_ids = [getattr(s, 'task_id', -1) for s in samples]
+                dream_task_id = sample_task_ids[0] if len(sample_task_ids) > 0 and sample_task_ids[0] >= 0 else None
                 
                 if isinstance(batch_args, list):
-                    outputs = self.model(*batch_args)
+                    outputs = self.model(*batch_args, task_id=dream_task_id)
                 else:
-                    outputs = self.model(batch_args)
+                    outputs = self.model(batch_args, task_id=dream_task_id)
                     
                 if hasattr(outputs, 'logits'): logits = outputs[0] if getattr(outputs, 'logits', None) is None else outputs.logits
                 elif isinstance(outputs, tuple): logits = outputs[0]
