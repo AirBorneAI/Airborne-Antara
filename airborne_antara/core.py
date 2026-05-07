@@ -773,7 +773,7 @@ class AdaptiveFramework(nn.Module):
         
         # 2. Update Governance (Iron Mind Quota)
         if self.governor:
-            self.governor.update_sacred_mask(self.memory, task_id, self.model)
+            self.governor.update_sacred_mask(self.memory, task_id, self.model, classes_per_task=self.config.classes_per_task)
             # [V26.5] Rebuild restoration cache for immediate protection of new knowledge
             self._rebuild_restoration_cache()
             # [V30.2] ENFORCE PROTECTION: Immediately lock BN stats and install shunts
@@ -1374,7 +1374,7 @@ class AdaptiveFramework(nn.Module):
 
                 # [V31.8] STRATEGIC MODE: Surgical Weight Decay (The Shunt)
                 # We apply extra decay to non-sacred weights to force neuron recycling.
-                surgical_wd = self._compute_surgical_weight_decay(wd_rate=1e-4)
+                surgical_wd = self._compute_surgical_weight_decay(wd_rate=1e-6)
 
                 # Aggregation logic inside autocast
                 total_loss = loss + reg_loss + aux_loss + (wm_loss * 0.5) + surgical_wd
@@ -2257,7 +2257,7 @@ class AdaptiveFramework(nn.Module):
                     # Task 1 needs to adapt BN stats to its own distribution to learn.
                     # We rely on weight/bias anchoring to preserve the 'Titanium' foundation.
 
-    def _compute_surgical_weight_decay(self, wd_rate: float = 1e-4) -> torch.Tensor:
+    def _compute_surgical_weight_decay(self, wd_rate: float = 1e-6) -> torch.Tensor:
         """
         [V31.8] STRATEGIC MODE: Differential Weight Decay.
         Applies L2 penalty only to NON-sacred parameters.

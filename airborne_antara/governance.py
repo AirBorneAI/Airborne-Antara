@@ -15,7 +15,7 @@ class KnowledgeGovernor:
         self.logger = logging.getLogger('KnowledgeGovernor')
         self.task_stats = {} # [V9.5] task_id -> {avg_top, std_top, pct_80, pct_60}
         
-    def update_sacred_mask(self, memory_module: Any, task_id: int, backbone_ref: nn.Module):
+    def update_sacred_mask(self, memory_module: Any, task_id: int, backbone_ref: nn.Module, classes_per_task: int = 10):
         """
         Calculates and enforces the V15 Quota.
         1. Snapshots current task's importance (Omega + Fisher).
@@ -197,7 +197,7 @@ class KnowledgeGovernor:
             for name, module in m.named_modules():
                 # 1. Hard-lock FC rows for ALL completed tasks
                 if "fc" in name.lower() and hasattr(module, 'weight'):
-                    cpt = self.config.classes_per_task
+                    cpt = classes_per_task
                     p = module.weight
                     pid = id(p)
                     if pid not in cumulative:
@@ -237,7 +237,16 @@ class KnowledgeGovernor:
             for m in memory_module.models:
                 for name, module in m.named_modules():
                     # Identify early backbone layers (ResNet-style)
-                    is_early = any(x in name.lower() for x in ['conv1', 'bn1', 'layer1', 'layer2'])
+                    # [V31.9] GRADUAL LOCKDOWN:
+                    # After Task 0, only lock conv1/bn1. 
+                    # After Task 2, lock layer1. After Task 4, lock layer2.
+                    if task_id == 0:
+                        is_early = any(x in name.lower() for x in ['conv1', 'bn1'])
+                    elif task_id <= 2:
+                        is_early = any(x in name.lower() for x in ['conv1', 'bn1', 'layer1'])
+                    else:
+                        is_early = any(x in name.lower() for x in ['conv1', 'bn1', 'layer1', 'layer2'])
+
                     if is_early and hasattr(module, 'weight'):
                         p = module.weight
                         pid = id(p)
