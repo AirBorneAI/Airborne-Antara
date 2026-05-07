@@ -116,7 +116,10 @@ class GatingNetwork(nn.Module):
             cons_bias = self.cons_proj(consciousness_state.to(x.device))
             logits = logits + cons_bias
             
-        logits = logits / max(self.temperature, 1e-8)
+        # [V31.15] MIRRORMIND SHARPENING:
+        # Use a much lower temperature during evaluation to force 1-hot routing.
+        eff_temp = 0.1 if not self.training else self.temperature
+        logits = logits / max(eff_temp, 1e-8)
         
         # [V27] Autonomous Feature-Based Routing
         # We removed the hard task-id mask to ensure the router learns to 
@@ -354,7 +357,13 @@ class HierarchicalMoE(nn.Module):
                         mask = (e_indices[:, k] == i)
                         e_w[mask] = e_weights[mask, k:k+1]
                     
-                    weighted_out = out * e_w * d_w
+                    # [V31.15] MIRRORMIND SOFT-WINNER FILTERING:
+                    # If an expert's combined probability is below 0.05, we zero it out.
+                    # This prevents 'Noise Floor Accumulation' in hierarchical systems.
+                    combined_w = e_w * d_w
+                    combined_w = torch.where(combined_w > 0.05, combined_w, torch.zeros_like(combined_w))
+                    
+                    weighted_out = out * combined_w
                     all_expert_outputs.append(weighted_out.unsqueeze(1))
             
             all_expert_outputs = torch.cat(all_expert_outputs, dim=1)

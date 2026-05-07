@@ -315,7 +315,17 @@ class KnowledgeGovernor:
                 is_critical = is_bn or is_fc or is_gate
 
 
-                if mask.numel() > 512 and not is_critical: 
+                # [V31.15] TITANIUM FOUNDATION PROTECTION:
+                # Task 0 is the universal foundation. We NEVER prune it.
+                # If the quota is exceeded, we must prune newer, less foundational tasks instead.
+                is_task0 = "task0" in p_name or any(f"task0" in str(k) for k in memory_module.task_omega_snapshots.keys() if k == 0)
+                # Actually, check the pid against task_omega_snapshots[0]
+                is_task0_sacred = False
+                if 0 in memory_module.task_omega_snapshots:
+                    if pid in memory_module.task_omega_snapshots[0]:
+                        is_task0_sacred = True
+
+                if mask.numel() > 512 and not is_critical and not is_task0_sacred: 
                     # [V31.11] TITANIUM PRUNING: Importance-Aware Quota Enforcement
                     # Instead of random pruning, we prune the weights with the lowest SI importance (omega).
                     # This ensures we fit in the 8% quota while preserving 99%+ of knowledge.

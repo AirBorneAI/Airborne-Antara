@@ -1064,14 +1064,14 @@ class AdaptiveFramework(nn.Module):
                     # to prevent Task 1 leakage from suppressing Task 0 during evaluation
                     if self.training and getattr(self, 'current_modifiers', None) is not None:
                         if mods.dim() == 1:
-                            scale = 1.0 + mods[0].clamp(-0.5, 0.5)
-                            shift = mods[1].clamp(-2.0, 2.0)
+                            scale = 1.0 + mods[0].clamp(-0.4, 0.4)
+                            shift = mods[1].clamp(-1.0, 1.0)
                         else:
                             # Batch of modifiers: [B, 2]
                             b_size = inp.size(0)
                             if mods.size(0) == b_size:
-                                s = mods[:, 0].clamp(-0.5, 0.5)
-                                f = mods[:, 1].clamp(-2.0, 2.0)
+                                s = mods[:, 0].clamp(-0.4, 0.4)
+                                f = mods[:, 1].clamp(-1.0, 1.0)
                                 for _ in range(inp.dim() - 1):
                                     s = s.unsqueeze(-1)
                                     f = f.unsqueeze(-1)
@@ -1080,8 +1080,8 @@ class AdaptiveFramework(nn.Module):
                             else:
                                 # Fallback to scalar mean
                                 m = mods.mean(dim=0)
-                                scale = 1.0 + m[0].clamp(-0.5, 0.5)
-                                shift = m[1].clamp(-2.0, 2.0)
+                                scale = 1.0 + m[0].clamp(-0.4, 0.4)
+                                shift = m[1].clamp(-1.0, 1.0)
                         inp = inp * scale + shift
                     
                     if inp is not output:
@@ -1293,6 +1293,17 @@ class AdaptiveFramework(nn.Module):
             if task_id != self._prev_train_task_id:
                 self.logger.info(f"[WARRIOR] New Task Detected: {task_id}. Purging Optimizer Momentum...")
                 self._sanitize_optimizer_state()
+                
+                # [V31.15] MIRRORMIND TRANSITION: 
+                # Also reset introspection engine state if it exists, as Task 0's 
+                # modifiers are likely invalid for Task 1.
+                if hasattr(self, 'introspection_engine') and self.introspection_engine:
+                    self.logger.info("[WARRIOR] Resetting Introspection Engine for task transition.")
+                    with torch.no_grad():
+                        for p in self.introspection_engine.parameters():
+                            if p in self.optimizer.state:
+                                self.optimizer.state[p] = {} # Total Purge
+                
                 self._prev_train_task_id = task_id
                 self._steps_since_task_start = 0
             else:
@@ -1698,6 +1709,9 @@ class AdaptiveFramework(nn.Module):
                         batch_args.append(torch.cat(arg_tensors, dim=0))
                     
                     batch_targets = torch.cat([s.target.to(self.device) for s in samples], dim=0)
+                    
+                    # [V31.18] Fix Missing Variable: Extract task IDs from samples
+                    sample_task_ids = [s.task_id for s in samples]
 
                 except Exception as e:
                     print(f"DEBUG: Dream Batch Failed: {e}")
@@ -1848,7 +1862,7 @@ class AdaptiveFramework(nn.Module):
         finally:
             self._internal_consolidation_mode = False
 
-    def learn_from_episodic_memory(self, current_surprise: float, current_loss: float, current_features: Optional[torch.Tensor] = None, k: int = 5):
+    def learn_from_episodic_memory(self, current_surprise: float, current_loss: float, current_features: Optional[torch.Tensor] = None, k: int = 5, task_id: Optional[int] = None):
         """
         Replay specific, relevant episodes from consciousness.
         """
@@ -1954,6 +1968,15 @@ class AdaptiveFramework(nn.Module):
             self._internal_consolidation_mode = False
 
         
+    def on_task_complete(self, task_id: int):
+        """
+        Finalize task knowledge, update sacred masks, and anchor parameters.
+        """
+        # 1. Update Memory Statistics (Fisher/SI)
+        if self.memory:
+             # In some versions, consolidate is called here
+             self.memory.on_task_complete(task_id)
+
         # 2. Update Sacred Mask (The Hard-Lock)
         if self.governor:
             self.governor.update_sacred_mask(self.memory, task_id, self.model)
@@ -2356,7 +2379,8 @@ class AdaptiveFramework(nn.Module):
                 # ~mask gives non-sacred coordinates
                 non_sacred_mask = (~mask).to(param.device)
                 if non_sacred_mask.any():
-                    total_wd += (param.data * non_sacred_mask).pow(2).sum() * wd_rate
+                    # [V31.18] Fix: Use param (not param.data) to allow gradient flow for surgical WD
+                    total_wd += (param * non_sacred_mask).pow(2).sum() * wd_rate
             else:
                 # No mask = All weights are fair game for decay
                 total_wd += param.pow(2).sum() * wd_rate
