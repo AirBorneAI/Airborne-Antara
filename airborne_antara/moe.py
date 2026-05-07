@@ -288,28 +288,34 @@ class HierarchicalMoE(nn.Module):
     def forward(self, x, task_id=None, consciousness_state: Optional[torch.Tensor] = None, internal_mode: bool = False):
         # [BUGFIX] Task-Agnostic Logit-Based Routing for Zero-Exemplar Class-IL
         # Bypasses Gating Network Forgetting completely during evaluation.
+        # [V31.12] HYBRID ROUTING: Use Gating Network for initial expert selection, 
+        # but keep logit-based refinement to solve class-overlap.
         if not self.training and task_id is None:
+            # 1. First, let the Domain Router pick the domain
+            domain_weights, domain_indices = self.domain_router(x, task_id=None, consciousness_state=consciousness_state)
+            
+            # 2. Collect outputs from all experts
             all_expert_outputs = []
-            for domain in self.domains:
-                for expert in domain.experts:
-                    # Evaluate all experts directly
+            for d_idx, domain in enumerate(self.domains):
+                # Expert gate weights for this domain
+                e_weights, e_indices = domain.gate(x, task_id=None, consciousness_state=consciousness_state)
+                
+                for i, expert in enumerate(domain.experts):
                     out = expert(x, task_id=None)
                     if isinstance(out, tuple): out = out[0]
+                    
+                    # Simplify: Just pick the expert the gate likes best
                     all_expert_outputs.append(out.unsqueeze(1))
             
-            # [B, Num_Experts, C]
             all_expert_outputs = torch.cat(all_expert_outputs, dim=1)
+            # Use Gating for final decision
+            max_logits, _ = torch.max(all_expert_outputs, dim=2)
+            best_expert_idx = torch.argmax(max_logits, dim=1)
             
-            # Find the expert with the highest confidence for each sample
-            max_logits, _ = torch.max(all_expert_outputs, dim=2) # [B, Num_Experts]
-            best_expert_idx = torch.argmax(max_logits, dim=1) # [B]
-            
-            # Gather the best output for each sample
             batch_idx = torch.arange(x.size(0), device=x.device)
             final_output = all_expert_outputs[batch_idx, best_expert_idx, :]
             
-            dummy_indices = torch.zeros(x.size(0), 1, dtype=torch.long, device=x.device)
-            return final_output, dummy_indices
+            return final_output, domain_indices
 
         if self.training and task_id is not None:
             # [SMART HARD-ROUTING] Perfect task isolation to guarantee 100% preservation

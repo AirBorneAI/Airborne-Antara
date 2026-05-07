@@ -120,9 +120,18 @@ class KnowledgeGovernor:
             q = task_quotas[tid]
             k = max(1, min(int(q * n), n))
             
-            _, top_idx = torch.topk(flat, k)
-            task_mask_flat = torch.zeros_like(flat, dtype=torch.bool)
-            task_mask_flat[top_idx] = True
+            # [V31.12] IMPORTANCE FILTERING: Only lock weights with non-zero importance.
+            # This prevents idle experts (which have 0 importance) from 'stealing' the quota.
+            nonzero_indices = (flat > 0).nonzero().view(-1)
+            if nonzero_indices.numel() > 0:
+                k = min(k, nonzero_indices.numel())
+                top_values, top_idx_in_nonzero = torch.topk(flat[nonzero_indices], k)
+                top_idx = nonzero_indices[top_idx_in_nonzero]
+                
+                task_mask_flat = torch.zeros_like(flat, dtype=torch.bool)
+                task_mask_flat[top_idx] = True
+            else:
+                task_mask_flat = torch.zeros_like(flat, dtype=torch.bool)
             
             curr_pos = 0
             for pid, imp in snap.items():
@@ -213,22 +222,9 @@ class KnowledgeGovernor:
                             cumulative[pbid] = torch.zeros(pb.shape, dtype=torch.bool, device=pb.device)
                         cumulative[pbid][:end_idx] = True
 
-                # 2. Hard-lock MoE Gates entirely after Task 0
-                if "gate" in name.lower() and hasattr(module, 'weight'):
-                    p = module.weight
-                    pid = id(p)
-                    if pid not in cumulative:
-                        cumulative[pid] = torch.ones(p.shape, dtype=torch.bool, device=p.device)
-                    else:
-                        cumulative[pid][:] = True
-                    
-                    if hasattr(module, 'bias') and module.bias is not None:
-                        pb = module.bias
-                        pbid = id(pb)
-                        if pbid not in cumulative:
-                            cumulative[pbid] = torch.ones(pb.shape, dtype=torch.bool, device=pb.device)
-                        else:
-                            cumulative[pbid][:] = True
+                # [V31.12] Router Plasticity: Global Gate Lock Removed.
+                # We now rely on the row-wise expert locking in Section 5 above.
+                # This allows the gate to learn new expert mappings for new tasks.
 
         # [V31.8] Absolute Foundation Lockdown (Backbone Protection)
         # We strictly freeze early universal feature detectors after Task 0.
