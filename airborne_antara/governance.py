@@ -190,6 +190,46 @@ class KnowledgeGovernor:
                 for name in pid_to_names[pid]:
                     memory_module.sacred_mask[name] = mask.to(mask.device)
         
+        # [V31.8] IRON MIND: Absolute Hard-Locks (Exempt from Quota)
+        # Classification heads and MoE Gates are the 'Identity' of previous tasks.
+        # They must be 100% frozen, or the model will 'forget' how to route and label.
+        for m in memory_module.models:
+            for name, module in m.named_modules():
+                # 1. Hard-lock FC rows for ALL completed tasks
+                if "fc" in name.lower() and hasattr(module, 'weight'):
+                    cpt = self.config.classes_per_task
+                    p = module.weight
+                    pid = id(p)
+                    if pid not in cumulative:
+                        cumulative[pid] = torch.zeros(p.shape, dtype=torch.bool, device=p.device)
+                    # Lock all rows belonging to completed tasks (0 to current task_id)
+                    end_idx = min((task_id + 1) * cpt, p.shape[0])
+                    cumulative[pid][:end_idx, :] = True
+                    
+                    if hasattr(module, 'bias') and module.bias is not None:
+                        pb = module.bias
+                        pbid = id(pb)
+                        if pbid not in cumulative:
+                            cumulative[pbid] = torch.zeros(pb.shape, dtype=torch.bool, device=pb.device)
+                        cumulative[pbid][:end_idx] = True
+
+                # 2. Hard-lock MoE Gates entirely after Task 0
+                if "gate" in name.lower() and hasattr(module, 'weight'):
+                    p = module.weight
+                    pid = id(p)
+                    if pid not in cumulative:
+                        cumulative[pid] = torch.ones(p.shape, dtype=torch.bool, device=p.device)
+                    else:
+                        cumulative[pid][:] = True
+                    
+                    if hasattr(module, 'bias') and module.bias is not None:
+                        pb = module.bias
+                        pbid = id(pb)
+                        if pbid not in cumulative:
+                            cumulative[pbid] = torch.ones(pb.shape, dtype=torch.bool, device=pb.device)
+                        else:
+                            cumulative[pbid][:] = True
+
         # [V31.8] Absolute Foundation Lockdown (Backbone Protection)
         # We strictly freeze early universal feature detectors after Task 0.
         # This prevents the 'representation drift' that destroys foundational knowledge.
@@ -236,12 +276,19 @@ class KnowledgeGovernor:
             ratio = self.quota / memory_module.saturation_level
             for pid, mask in cumulative.items():
                 # Protect small critical layers (FC heads, Gates) and ALL Batch Normalization from random pruning
-                # BN is excluded because its statistics and affine parameters are highly sensitive.
+                # [V31.8] Hard-Locks are also exempt.
                 names = pid_to_names.get(pid, [])
                 p_name = names[0].lower() if names else ""
-                is_bn = "bn" in p_name or "norm" in p_name
                 
-                if mask.numel() > 512 and not is_bn: 
+                # Exemption Criteria: BN, FC, Gate, or early ResNet layers
+                is_bn = "bn" in p_name or "norm" in p_name
+                is_fc = "fc" in p_name
+                is_gate = "gate" in p_name
+                is_early = any(x in p_name for x in ['conv1', 'layer1', 'layer2'])
+                
+                is_critical = is_bn or is_fc or is_gate or is_early
+
+                if mask.numel() > 512 and not is_critical: 
                     # Use deterministic-ish pruning based on random sampling
                     prune_indices = torch.rand(mask.shape, device=mask.device, generator=torch.Generator(device=mask.device).manual_seed(42)) < ratio
                     cumulative[pid] &= prune_indices
