@@ -581,7 +581,9 @@ class AdaptiveFramework(nn.Module):
         self._cached_sacred_params = [] 
         
         # 9. Optimizers
-        self.optimizer = AdamW(self.model.parameters(), lr=config.learning_rate)
+        # [V31.8] SURGICAL WD: Set weight_decay=0 here. 
+        # We handle WD manually in _compute_surgical_weight_decay to protect sacred weights.
+        self.optimizer = AdamW(self.model.parameters(), lr=config.learning_rate, weight_decay=0.0)
         
         # Adapter Optimizer (CRITICAL FIX: Now sees parameters because _init_adapters_and_hooks ran first)
         if hasattr(self, 'adapter_bank') and self.adapter_bank is not None:
@@ -684,10 +686,18 @@ class AdaptiveFramework(nn.Module):
         
         models_to_protect = self.memory.models if (hasattr(self, 'memory') and self.memory) else [self.model]
             
+        # [V31.8] SHARED MODULE PROTECTION: Identity-based de-duplication
+        # Ensures we only register ONE hook per physical parameter.
+        seen_pids = set()
+            
         for m_idx, model in enumerate(models_to_protect):
             # 1. Parameter Gradients (Hard Shunting)
             for name, param in model.named_parameters():
                 if param.requires_grad:
+                    pid = id(param)
+                    if pid in seen_pids: continue
+                    seen_pids.add(pid)
+                    
                     unique_name = f"m{m_idx}_{name}"
                     def get_hook(p_unique_name):
                         def hook(grad):
@@ -696,17 +706,13 @@ class AdaptiveFramework(nn.Module):
                                 if mask is not None:
                                     if not mask.any(): return grad
                                     
-                                    # [V31.7] ELASTIC SHUNT: Enable Positive BWT
-                                    # For backbone layers, we keep the hard-lock (0% flow) to prevent drift.
-                                    # For FC/Classifier heads, we allow the requested elastic flow (e.g. 8%)
-                                    # so they can adapt to the improved backbone features.
-                                    if "fc" in p_unique_name.lower() or "classifier" in p_unique_name.lower() or "head" in p_unique_name.lower():
+                                    # [V31.8] BACKBONE PROTECTION: Hard Shunt (0.0)
+                                    # [V31.8] FC/Head: Elastic Shunt (0.08)
+                                    is_head = any(x in p_unique_name.lower() for x in ["fc", "classifier", "head"])
+                                    if is_head:
                                         multiplier = torch.where(mask.to(grad.device), elastic_limit, 1.0)
                                         return grad * multiplier
                                     else:
-                                        # [V31.7] BACKBONE PROTECTION: Hard Shunt (0.0)
-                                        # 1% leak was causing cumulative drift over long tasks.
-                                        # We rely on Surgical Restoration for plasticity if needed.
                                         multiplier = torch.where(mask.to(grad.device), 0.0, 1.0)
                                         return grad * multiplier
                             return grad
@@ -743,6 +749,10 @@ class AdaptiveFramework(nn.Module):
     def on_task_complete(self, task_id: int):
         """[V15 + V9.4] IRON MIND + Cognitive task boundary handler."""
         print(f"\n[ANTARA] Task {task_id} complete. Anchoring Knowledge...")
+        
+        # [V31.8] Weight Alignment (WA): Eliminate Recency Bias BEFORE Anchoring
+        # This ensures the 'Sacred' weights we restore are already balanced.
+        self._apply_internal_wa(task_id)
         
         # 1. Consolidate Memory (EWC/SI)
         if self.memory and self.memory.method != 'none':
@@ -1802,6 +1812,7 @@ class AdaptiveFramework(nn.Module):
         if not memories: return
         
         self.model.train()
+        self._lock_sacred_bn() # [V31.8] IRON MIND: BN Cryostasis during Replay
         self._internal_consolidation_mode = True
         try:
             # 2. Construct Batch
@@ -1879,6 +1890,7 @@ class AdaptiveFramework(nn.Module):
                 
                 # [V17] Post-Replay Restoration
                 self._apply_sacred_restoration()
+                self._lock_sacred_bn() # Re-enforce eval mode if forward pass changed it
                 
             except Exception as e:
                 self.logger.error(f"Replay Batch Error: {e}")
@@ -2262,6 +2274,50 @@ class AdaptiveFramework(nn.Module):
                 total_wd += param.pow(2).sum() * wd_rate
                 
         return total_wd
+
+    def _apply_internal_wa(self, task_id: int):
+        """
+        [V31.8] IRON MIND: Internal Weight Alignment (WA).
+        Eliminates recency bias by balancing classifier norms across tasks.
+        """
+        if task_id == 0: return
+        
+        try:
+            # We assume the last linear layer is the classifier
+            classifier = None
+            for module in self.model.modules():
+                if isinstance(module, nn.Linear):
+                    classifier = module
+            
+            if classifier is None: return
+            
+            # Infer classes per task
+            total_classes = classifier.weight.shape[0]
+            num_tasks = task_id + 1
+            cpt = total_classes // num_tasks
+            if cpt == 0: return
+            
+            # Calculate average norm for previous tasks and current task
+            norms = torch.norm(classifier.weight.data, p=2, dim=1)
+            
+            prev_norms = norms[:task_id * cpt]
+            curr_norms = norms[task_id * cpt:(task_id + 1) * cpt]
+            
+            if prev_norms.numel() == 0 or curr_norms.numel() == 0: return
+            
+            avg_prev = prev_norms.mean()
+            avg_curr = curr_norms.mean()
+            
+            gamma = avg_prev / avg_curr
+            
+            # [V31.8] ETERNAL MIND: Absolute Alignment
+            # We align regardless of direction to ensure the 'Volume' of each task is equal.
+            # This handles both Recency Bias (New > Old) and Foundation Bias (Old > New).
+            classifier.weight.data[task_id * cpt:(task_id + 1) * cpt, :] *= gamma
+            self.logger.info(f"[WA] Knowledge balanced: Gamma = {gamma:.4f} (Prev Avg: {avg_prev:.2f}, Curr Avg: {avg_curr:.2f})")
+                
+        except Exception as e:
+            self.logger.warning(f"[WA] Alignment bypassed: {e}")
 
     def _rebuild_restoration_cache(self):
         """Build the list of references to sacred parameters and anchors."""

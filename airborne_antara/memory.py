@@ -700,11 +700,12 @@ class UnifiedMemoryHandler:
                             if w_name in self.sacred_mask and self.sacred_mask[w_name].any():
                                 is_sacred_bn = True
                             
-                            if not is_sacred_bn or unique_name not in self.anchor:
-                                self.anchor[unique_name] = b.data.clone().detach().float().cpu() # [V31.7] Use unique name
-                            else:
-                                # Selective update for plastic parts
-                                mask = self.sacred_mask[w_name] # BN usually shares mask with weight
+                            if unique_name not in self.anchor:
+                                self.anchor[unique_name] = b.data.clone().detach().float().cpu() 
+                            elif is_sacred_bn:
+                                # Selective update only if we are specifically asked to update a sacred part
+                                # (Though for BN running stats, we usually want absolute immutability)
+                                mask = self.sacred_mask[w_name]
                                 old_anc = self.anchor[unique_name].to(b.device)
                                 self.anchor[unique_name] = torch.where(mask, old_anc, b.data.clone().detach().float()).cpu()
         

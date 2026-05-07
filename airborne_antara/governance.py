@@ -176,15 +176,33 @@ class KnowledgeGovernor:
 
         # 6. Apply to Unified Memory
         memory_module.param_id_to_mask = cumulative
-        all_unique_names = {id(p): f"m{m_idx}_{name}" for m_idx, m in enumerate(memory_module.models) for name, p in m.named_parameters()}
+        
+        # [V31.8] SHARED MODULE PROTECTION: Map all expert-aliases to the same physical mask.
+        pid_to_names = {}
+        for m_idx, m in enumerate(memory_module.models):
+            for name, p in m.named_parameters():
+                pid = id(p)
+                if pid not in pid_to_names: pid_to_names[pid] = []
+                pid_to_names[pid].append(f"m{m_idx}_{name}")
 
         for pid, mask in cumulative.items():
-            if pid in all_unique_names:
-                memory_module.sacred_mask[all_unique_names[pid]] = mask.to(mask.device)
+            if pid in pid_to_names:
+                for name in pid_to_names[pid]:
+                    memory_module.sacred_mask[name] = mask.to(mask.device)
         
-        # Calculate Saturation (V30 Fix: Sum across ALL tracked models)
-        total_sacred = sum(m.sum().item() for m in cumulative.values())
-        num_total = sum(p.numel() for m in memory_module.models for p in m.parameters() if p.requires_grad)
+        # Calculate Saturation (V31.8 Identity-Aware)
+        # Use set of PIDs for total_params to avoid overcounting shared backbones
+        total_pids = set()
+        for m in memory_module.models:
+            for p in m.parameters():
+                if p.requires_grad: total_pids.add(id(p))
+        
+        num_total = sum(p.numel() for pid in total_pids for p in [next(p for m in memory_module.models for p in m.parameters() if id(p) == pid)])
+        # Actually, a simpler way:
+        unique_params = {id(p): p for m in memory_module.models for p in m.parameters() if p.requires_grad}
+        num_total = sum(p.numel() for p in unique_params.values())
+        total_sacred = sum(mask.sum().item() for mask in cumulative.values())
+        
         memory_module.saturation_level = total_sacred / max(1, num_total)
         
         # [V31.7] Bug #8 Fix: Enforce Quota Ceiling (Emergency Pruning)
@@ -193,10 +211,15 @@ class KnowledgeGovernor:
             # Proportional pruning of masks to fit within quota
             ratio = self.quota / memory_module.saturation_level
             for pid, mask in cumulative.items():
-                # Protect small critical layers (FC heads, Gates) from random pruning
-                if mask.numel() > 512: 
+                # Protect small critical layers (FC heads, Gates) and ALL Batch Normalization from random pruning
+                # BN is excluded because its statistics and affine parameters are highly sensitive.
+                names = pid_to_names.get(pid, [])
+                p_name = names[0].lower() if names else ""
+                is_bn = "bn" in p_name or "norm" in p_name
+                
+                if mask.numel() > 512 and not is_bn: 
                     # Use deterministic-ish pruning based on random sampling
-                    prune_indices = torch.rand(mask.shape, device=mask.device) < ratio
+                    prune_indices = torch.rand(mask.shape, device=mask.device, generator=torch.Generator(device=mask.device).manual_seed(42)) < ratio
                     cumulative[pid] &= prune_indices
             
             # Recalculate final saturation
