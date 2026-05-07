@@ -2320,11 +2320,6 @@ class AdaptiveFramework(nn.Module):
             if aligned_count > 0:
                 self.logger.info(f"[WA] Knowledge balanced across {aligned_count} heads for Task {task_id}")
             
-            # [V31.8] ETERNAL MIND: Absolute Alignment
-            # We align regardless of direction to ensure the 'Volume' of each task is equal.
-            # This handles both Recency Bias (New > Old) and Foundation Bias (Old > New).
-            classifier.weight.data[task_id * cpt:(task_id + 1) * cpt, :] *= gamma
-            self.logger.info(f"[WA] Knowledge balanced: Gamma = {gamma:.4f} (Prev Avg: {avg_prev:.2f}, Curr Avg: {avg_curr:.2f})")
                 
         except Exception as e:
             self.logger.warning(f"[WA] Alignment bypassed: {e}")
