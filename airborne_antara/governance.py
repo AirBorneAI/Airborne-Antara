@@ -297,7 +297,7 @@ class KnowledgeGovernor:
         
         # [V31.7] Bug #8 Fix: Enforce Quota Ceiling (Emergency Pruning)
         if memory_module.saturation_level > self.quota:
-            self.logger.warning(f"⚠️ Saturation ({memory_module.saturation_level:.2%}) exceeds quota ({self.quota:.2%}). Pruning mask...")
+            self.logger.warning(f"[IRON MIND] Saturation ({memory_module.saturation_level:.2%}) exceeds quota ({self.quota:.2%}). Pruning mask...")
             # Proportional pruning of masks to fit within quota
             ratio = self.quota / memory_module.saturation_level
             for pid, mask in cumulative.items():
@@ -339,7 +339,7 @@ class KnowledgeGovernor:
             total_sacred = sum(m.sum().item() for m in cumulative.values())
             memory_module.saturation_level = total_sacred / max(1, num_total)
 
-        self.logger.info(f"🛡️ Equilibrium Protocol Active (V9.6). Global Ceiling: {self.quota*100}%.")
+        self.logger.info(f"[IRON MIND] Equilibrium Protocol Active (V9.6). Global Ceiling: {self.quota*100}%.")
         print(f"  [SENTIENT] Sacred Mask Updated. Global Saturation: {memory_module.saturation_level:.2%}")
         print(f"  [SENTIENT] Knowledge Anchored. Locked Parameters: {total_sacred:,.0f} / {num_total:,} ({memory_module.saturation_level:.2%})")
         

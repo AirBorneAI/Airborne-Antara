@@ -845,7 +845,7 @@ class AdaptiveFramework(nn.Module):
 
         # [V31.8] STRATEGIC MODE: Teacher Snapshot
         # Store a copy of the model as a teacher for self-distillation during dreaming.
-        self.logger.info("👨‍🏫 Snapshotting Teacher Model...")
+        self.logger.info("[ANTARA] Snapshotting Teacher Model...")
         
         # [BUGFIX R-11] Clear all hooks to enable deepcopy/serialization (PicklingError avoidance)
         # We must strip hooks from the active model, snapshot, then re-install.
@@ -910,7 +910,7 @@ class AdaptiveFramework(nn.Module):
         [V9.4] HEE: Holographic Expert Expansion.
         Spawns new neural real estate to allow learning when backbone is full.
         """
-        self.logger.info("⚡ Expanding Neural Expert Bank...")
+        self.logger.info("[ADAPTER] Expanding Neural Expert Bank...")
         
         # 1. Offload 'Ancient' state to Holographic Vault before expansion
         if self.memory and hasattr(self.memory, 'holographic_vault'):
@@ -929,7 +929,7 @@ class AdaptiveFramework(nn.Module):
                 # Use current learning rate or config default
                 lr = getattr(self.config, 'weight_adaptation_lr', 1e-3)
                 self.adapter_optimizer = AdamW(adapter_params, lr=lr)
-                self.logger.info(f"✨ Expansion Complete. {len(adapter_params)//4} experts now online.")
+                self.logger.info(f"[ADAPTER] Expansion Complete. {len(adapter_params)//4} experts now online.")
 
     def _init_adapters_and_hooks(self, force_upgrade: bool = False):
         """
@@ -1063,16 +1063,15 @@ class AdaptiveFramework(nn.Module):
                     # [BUGFIX] Apply Sentient Affine Modifiers ONLY during training 
                     # to prevent Task 1 leakage from suppressing Task 0 during evaluation
                     if self.training and getattr(self, 'current_modifiers', None) is not None:
-                        mods = self.current_modifiers
                         if mods.dim() == 1:
-                            scale = 1.0 + mods[0]
-                            shift = mods[1]
+                            scale = 1.0 + mods[0].clamp(-0.5, 0.5)
+                            shift = mods[1].clamp(-2.0, 2.0)
                         else:
                             # Batch of modifiers: [B, 2]
                             b_size = inp.size(0)
                             if mods.size(0) == b_size:
-                                s = mods[:, 0]
-                                f = mods[:, 1]
+                                s = mods[:, 0].clamp(-0.5, 0.5)
+                                f = mods[:, 1].clamp(-2.0, 2.0)
                                 for _ in range(inp.dim() - 1):
                                     s = s.unsqueeze(-1)
                                     f = f.unsqueeze(-1)
@@ -1081,8 +1080,8 @@ class AdaptiveFramework(nn.Module):
                             else:
                                 # Fallback to scalar mean
                                 m = mods.mean(dim=0)
-                                scale = 1.0 + m[0]
-                                shift = m[1]
+                                scale = 1.0 + m[0].clamp(-0.5, 0.5)
+                                shift = m[1].clamp(-2.0, 2.0)
                         inp = inp * scale + shift
                     
                     if inp is not output:
@@ -1288,6 +1287,17 @@ class AdaptiveFramework(nn.Module):
         # [V9.2 CRITICAL BUGFIX] Zero ALL optimizers
         # Previously only the main optimizer was zeroed, causing gradient 
         # accumulation in adapters and System 2, leading to corruption.
+        # [V31.14] Task Transition Protection: Clean optimizer on task boundary
+        if task_id is not None:
+            if not hasattr(self, '_prev_train_task_id'): self._prev_train_task_id = -1
+            if task_id != self._prev_train_task_id:
+                self.logger.info(f"[WARRIOR] New Task Detected: {task_id}. Purging Optimizer Momentum...")
+                self._sanitize_optimizer_state()
+                self._prev_train_task_id = task_id
+                self._steps_since_task_start = 0
+            else:
+                self._steps_since_task_start = getattr(self, '_steps_since_task_start', 0) + 1
+
         self.optimizer.zero_grad()
         if hasattr(self, 'adapter_optimizer') and self.adapter_optimizer:
             self.adapter_optimizer.zero_grad()
@@ -1491,12 +1501,13 @@ class AdaptiveFramework(nn.Module):
             if self.memory and self.memory.method != 'none':
                 self.memory.accumulate_path(param_before)
 
-            # [V17] Post-Optimizer Sacred Restoration (combats weight decay drift)
-            self._apply_sacred_restoration()
-            
             # [V8.0] Lookahead Step
             if self.config.use_lookahead:
                 self._lookahead_step()
+                
+            # [V17] Post-Optimizer Sacred Restoration (combats weight decay drift)
+            # [V31.14] Absolute Restoration: Must be the VERY LAST thing before return.
+            self._apply_sacred_restoration()
 
         finally:
             # MANDATORY CLEANUP (V17.0 ETERNAL MIND - TOTAL AMNESIA)
@@ -1955,7 +1966,7 @@ class AdaptiveFramework(nn.Module):
         
         # 5. Clear transient buffers to free VRAM for next task
         self.clear_cognitive_buffers()
-        self.logger.info(f"🛡️ Task {task_id} Knowledge Anchored. Iron Mind Active.")
+        self.logger.info(f"[ANTARA] Task {task_id} Knowledge Anchored. Iron Mind Active.")
 
     def consolidate_memory(self, **kwargs):
         """Wrapper for Unified Memory consolidation (Backward Compatibility)."""
@@ -2255,7 +2266,7 @@ class AdaptiveFramework(nn.Module):
                         if 'exp_avg_sq' in state:
                             state['exp_avg_sq'][mask] = 0.0
         
-        self.logger.info("🛡️ Optimizer state sanitized for Titanium locked weights.")
+        self.logger.info("[IRON MIND] Optimizer state sanitized for Titanium locked weights.")
 
     def status(self) -> Dict[str, Any]:
         """

@@ -210,6 +210,10 @@ class SparseMoE(nn.Module):
                 else: # bias
                     new_state[k][~mask] = 0.0
             
+            # [V31.14] Bias Sanitization: Expert bias must be neutral
+            elif "bias" in k and "fc" not in k:
+                new_state[k] = torch.zeros_like(v)
+            
         self.experts[target_idx].load_state_dict(new_state)
 
     def set_temperature(self, temperature):
@@ -228,6 +232,20 @@ class SparseMoE(nn.Module):
             indices = torch.full((x.size(0), self.top_k), target_expert, dtype=torch.long, device=x.device)
             weights = torch.zeros((x.size(0), self.top_k), device=x.device)
             weights[:, 0] = 1.0
+            
+            # [V31.14] SUPERVISED GATE TRAINING:
+            # Even when forcing routing, we must train the gate to recognize these features.
+            # Otherwise, the gate is 'garbage' during evaluation (Class-IL).
+            gate_weights, gate_indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
+            
+            # Divergence Loss: Force gate logits to favor the target_expert
+            # We access gate.last_logits if we modify GatingNetwork, or just re-run a simple version.
+            # Simplified: Add to aux_loss directly.
+            if hasattr(self.gate, 'gate'):
+                gate_logits = self.gate.gate(x.view(x.size(0), -1) if x.dim() > 2 else x)
+                target_labels = torch.full((x.size(0),), target_expert, dtype=torch.long, device=x.device)
+                routing_loss = F.cross_entropy(gate_logits, target_labels)
+                self.gate.aux_loss = getattr(self.gate, 'aux_loss', 0.0) + routing_loss * 0.1
         else:
             weights, indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
         
