@@ -145,7 +145,7 @@ class KnowledgeGovernor:
                         num_classes = module.weight.shape[0]
                         # [V29] Dynamic Task Density
                         num_tasks_total = getattr(memory_module, 'total_tasks', 10) 
-                        cpt = num_classes // num_tasks_total 
+                        cpt = classes_per_task
                         for tid in memory_module.task_omega_snapshots:
                             s, e = tid * cpt, min((tid + 1) * cpt, num_classes)
                             cumulative[p_w_id][s:e, :] = True
@@ -197,7 +197,7 @@ class KnowledgeGovernor:
             for name, module in m.named_modules():
                 # 1. Hard-lock FC rows for ALL completed tasks
                 if "fc" in name.lower() and hasattr(module, 'weight'):
-                    cpt = classes_per_task
+                    cpt = self.config.classes_per_task
                     p = module.weight
                     pid = id(p)
                     if pid not in cumulative:
@@ -236,7 +236,18 @@ class KnowledgeGovernor:
         # [V31.11] TITANIUM EXPERT ISOLATION:
         # We only lock the foundational features of the experts that were actually TRAINED.
         # This preserves 100% plasticity for future experts.
-        target_expert_idx = task_id % 8 # Hard-coded for 8 experts based on H-MoE config
+        
+        # Dynamically determine expert count from naming convention
+        expert_indices = set()
+        for m in memory_module.models:
+            for name, _ in m.named_modules():
+                if "experts." in name:
+                    try:
+                        idx = int(name.split("experts.")[1].split(".")[0])
+                        expert_indices.add(idx)
+                    except: continue
+        num_experts = len(expert_indices) if expert_indices else 8
+        target_expert_idx = task_id % num_experts
         
         if task_id >= 0:
             for m_idx, m in enumerate(memory_module.models):
