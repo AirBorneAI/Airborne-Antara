@@ -707,10 +707,10 @@ class AdaptiveFramework(nn.Module):
                                     if not mask.any(): return grad
                                     
                                     # [V31.8] BACKBONE PROTECTION: Hard Shunt (0.0)
-                                    # [V31.8] FC/Head: Elastic Shunt (0.08)
+                                    # [V9.5] HEAD PROTECTION: Absolute Shunt (0.0) as requested for NeurIPS stability
                                     is_head = any(x in p_unique_name.lower() for x in ["fc", "classifier", "head"])
                                     if is_head:
-                                        multiplier = torch.where(mask.to(grad.device), elastic_limit, 1.0)
+                                        multiplier = torch.where(mask.to(grad.device), 0.0, 1.0)
                                         return grad * multiplier
                                     else:
                                         multiplier = torch.where(mask.to(grad.device), 0.0, 1.0)
@@ -812,9 +812,13 @@ class AdaptiveFramework(nn.Module):
                 if unique_name in self.memory.omega:
                     omega = self.memory.omega[unique_name]
                     if omega.numel() > 10:
-                        # Find 10th percentile of importance
-                        threshold = torch.quantile(omega.float(), 0.10)
-                        prune_mask = (omega <= threshold)
+                        # [V9.5] Stable Pruning: Use Top-K instead of Quantile
+                        # to ensure exactly 10% is pruned even with many zero values.
+                        k = max(1, int(0.10 * omega.numel()))
+                        _, indices = torch.topk(omega.float().view(-1), k, largest=False)
+                        prune_mask = torch.zeros_like(omega, dtype=torch.bool)
+                        prune_mask.view(-1)[indices] = True
+                        
                         # 1. Zero the pruned weights to create a clean slate
                         p.data[prune_mask] = 0.0
                         # 2. Resurrect: Remove from sacred mask so subsequent tasks can own them
@@ -864,17 +868,16 @@ class AdaptiveFramework(nn.Module):
         # Strictly revert any changes to sacred parameters back to their anchored values.
         # This catches drift from Lookahead, Reptile, and Optimizer artifacts.
         with torch.no_grad():
-            # [V31.11] PREFIX ALIGNMENT: Governance uses m{idx}_ prefixes for multi-model tracking
             for m_idx, model in enumerate(self.memory.models):
-                for n, p in model.named_parameters():
-                    unique_name = f"m{m_idx}_{n}"
+                for name, p in model.named_parameters():
+                    unique_name = f"m{m_idx}_{name}"
                     mask = self.memory.sacred_mask.get(unique_name)
                     if mask is not None and mask.any():
                         anchor = self.memory.anchor.get(unique_name)
                         if anchor is not None:
                             p.data[mask] = anchor[mask.to(anchor.device)].to(p.device)
         
-        self.logger.info(f"Task {task_id} knowledge anchored, drift-reverted, and re-synchronized.")
+        self.logger.info(f"Task {task_id} knowledge anchored and drift-reverted.")
 
     def _setup_logging(self):
         logger = logging.getLogger('AdaptiveFramework')

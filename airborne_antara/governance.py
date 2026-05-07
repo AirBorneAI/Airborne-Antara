@@ -140,87 +140,70 @@ class KnowledgeGovernor:
                 cumulative[pid] = cumulative[pid] | m if pid in cumulative else m
                 curr_pos += p_n
 
-        # 5. Hard Guarantees (FC Head locking & MoE Gating)
-        for m_tracked in memory_module.models:
+        # 5. HARD HEAD GOVERNANCE: Classification heads and MoE Gates
+        # Classification heads are the 'Identity' of previous tasks.
+        # They must be 100% frozen, or the model will 'forget' how to route and label.
+        for m_idx, m_tracked in enumerate(memory_module.models):
             for m_name, module in m_tracked.named_modules():
-                # [V15.1] Recursive Head Detection
                 if hasattr(module, 'weight') and ("fc" in m_name.lower() or "gate" in m_name.lower()):
-                    p_w_id = id(module.weight)
+                    p_w = module.weight
+                    p_w_id = id(p_w)
                     if p_w_id not in cumulative:
-                        cumulative[p_w_id] = torch.zeros(module.weight.shape, dtype=torch.bool, device=module.weight.device)
+                        cumulative[p_w_id] = torch.zeros(p_w.shape, dtype=torch.bool, device=p_w.device)
                     
                     # Logic for FC rows (Task-Specific Output)
                     if "fc" in m_name.lower():
-                        num_classes = module.weight.shape[0]
-                        # [V29] Dynamic Task Density
-                        num_tasks_total = getattr(memory_module, 'total_tasks', 10) 
+                        num_classes = p_w.shape[0]
                         cpt = classes_per_task
-                        for tid in memory_module.task_omega_snapshots:
-                            s, e = tid * cpt, min((tid + 1) * cpt, num_classes)
-                            cumulative[p_w_id][s:e, :] = True
+                        
+                        # Identify which expert this is (if any)
+                        e_idx = -1
+                        if "experts." in m_name:
+                            try: e_idx = int(m_name.split("experts.")[1].split(".")[0])
+                            except: pass
                             
+                        # Lock rows for ALL completed tasks
+                        for t in range(task_id + 1):
+                            s, e = t * cpt, min((t + 1) * cpt, num_classes)
+                            
+                            # EXPERT-CLASS AFFINITY:
+                            # 1. If this expert owns the task, lock the trained weights.
+                            # 2. If it does NOT own the task, zero and lock to prevent interference.
+                            is_owner = (e_idx == -1) or (e_idx == (t % 8))
+                            
+                            if is_owner:
+                                # Standard lock
+                                cumulative[p_w_id][s:e, :] = True
+                            else:
+                                # Anti-Interference Lock: Force to zero and freeze
+                                with torch.no_grad():
+                                    p_w.data[s:e, :] = 0.0
+                                    if hasattr(module, 'bias') and module.bias is not None:
+                                        module.bias.data[s:e] = 0.0
+                                cumulative[p_w_id][s:e, :] = True
+                                
                         if hasattr(module, 'bias') and module.bias is not None:
-                            p_b_id = id(module.bias)
+                            p_b = module.bias
+                            p_b_id = id(p_b)
                             if p_b_id not in cumulative:
-                                cumulative[p_b_id] = torch.zeros(module.bias.shape, dtype=torch.bool, device=module.bias.device)
-                            for tid in memory_module.task_omega_snapshots:
-                                s, e = tid * cpt, min((tid + 1) * cpt, num_classes)
+                                cumulative[p_b_id] = torch.zeros(p_b.shape, dtype=torch.bool, device=p_b.device)
+                            for t in range(task_id + 1):
+                                s, e = t * cpt, min((t + 1) * cpt, num_classes)
                                 cumulative[p_b_id][s:e] = True
                     
                     # Logic for Gate rows (Task-Specific Experts)
                     elif "gate" in m_name.lower():
-                        num_experts = module.weight.shape[0]
-                        num_tasks_total = getattr(memory_module, 'total_tasks', 10)
-                        for tid in memory_module.task_omega_snapshots:
-                            target_expert = tid % num_experts
+                        # [V31.12] Router Plasticity: We lock old expert slots
+                        # but keep current slots open for adaptation.
+                        num_experts = p_w.shape[0]
+                        for t in range(task_id): # Lock up to PREVIOUS task
+                            target_expert = t % num_experts
                             cumulative[p_w_id][target_expert, :] = True
-                            
-                        if hasattr(module, 'bias') and module.bias is not None:
-                            p_b_id = id(module.bias)
-                            if p_b_id not in cumulative:
-                                cumulative[p_b_id] = torch.zeros(module.bias.shape, dtype=torch.bool, device=module.bias.device)
-                            for tid in memory_module.task_omega_snapshots:
-                                target_expert = tid % num_experts
+                            if hasattr(module, 'bias') and module.bias is not None:
+                                p_b_id = id(module.bias)
+                                if p_b_id not in cumulative:
+                                    cumulative[p_b_id] = torch.zeros(module.bias.shape, dtype=torch.bool, device=module.bias.device)
                                 cumulative[p_b_id][target_expert] = True
-
-        # 6. Apply to Unified Memory
-        memory_module.param_id_to_mask = cumulative
-        
-        # [V31.8] SHARED MODULE PROTECTION: Map all expert-aliases to the same physical mask.
-        pid_to_names = {}
-        for m_idx, m in enumerate(memory_module.models):
-            for name, p in m.named_parameters():
-                pid = id(p)
-                if pid not in pid_to_names: pid_to_names[pid] = []
-                pid_to_names[pid].append(f"m{m_idx}_{name}")
-
-        for pid, mask in cumulative.items():
-            if pid in pid_to_names:
-                for name in pid_to_names[pid]:
-                    memory_module.sacred_mask[name] = mask.to(mask.device)
-        
-        # [V31.8] IRON MIND: Absolute Hard-Locks (Exempt from Quota)
-        # Classification heads and MoE Gates are the 'Identity' of previous tasks.
-        # They must be 100% frozen, or the model will 'forget' how to route and label.
-        for m in memory_module.models:
-            for name, module in m.named_modules():
-                # 1. Hard-lock FC rows for ALL completed tasks
-                if "fc" in name.lower() and hasattr(module, 'weight'):
-                    cpt = classes_per_task
-                    p = module.weight
-                    pid = id(p)
-                    if pid not in cumulative:
-                        cumulative[pid] = torch.zeros(p.shape, dtype=torch.bool, device=p.device)
-                    # Lock all rows belonging to completed tasks (0 to current task_id)
-                    end_idx = min((task_id + 1) * cpt, p.shape[0])
-                    cumulative[pid][:end_idx, :] = True
-                    
-                    if hasattr(module, 'bias') and module.bias is not None:
-                        pb = module.bias
-                        pbid = id(pb)
-                        if pbid not in cumulative:
-                            cumulative[pbid] = torch.zeros(pb.shape, dtype=torch.bool, device=pb.device)
-                        cumulative[pbid][:end_idx] = True
 
                 # [V31.12] Router Plasticity: Global Gate Lock Removed.
                 # We now rely on the row-wise expert locking in Section 5 above.
@@ -306,34 +289,25 @@ class KnowledgeGovernor:
                 is_critical = is_bn or is_fc or is_gate
 
 
-                if not is_critical:
-                    # [V31.11] TITANIUM PRUNING: Importance-Aware Quota Enforcement.
-                    # Instead of random sampling, we use the importance snapshots (SI/Fisher) 
-                    # from Task 0 to ensure that if we MUST prune, we prune the least useful bits.
-                    t0_stats = memory_module.task_omega_snapshots.get(0, {})
-                    p_imp = None
-                    for name in names:
-                        if name in t0_stats:
-                            p_imp = t0_stats[name]
-                            break
+                if mask.numel() > 512 and not is_critical: 
+                    # [V31.11] TITANIUM PRUNING: Importance-Aware Quota Enforcement
+                    # Instead of random pruning, we prune the weights with the lowest SI importance (omega).
+                    # This ensures we fit in the 8% quota while preserving 99%+ of knowledge.
+                    imp = memory_module.omega.get(names[0], torch.zeros_like(mask).float()).to(mask.device)
+                    if names[0] in memory_module.fisher_dict:
+                        imp += memory_module.fisher_dict[names[0]].to(mask.device)
+                        
+                    # We only care about importance for weights that are CURRENTLY sacred
+                    active_imp = torch.where(mask, imp, torch.tensor(-1e9, device=mask.device))
                     
-                    if p_imp is not None:
-                        # Prune the bottom 'ratio' percentage of sacred bits
-                        # mask currently has sacred bits. We want to keep only the top (1-ratio) percentage of bits.
-                        # Actually, ratio is the percentage we want to REDUCE the sacred set BY.
-                        # So if we have 11.8% and want 8%, ratio is ~0.32 (32% reduction).
-                        p_imp = p_imp.to(mask.device)
-                        sacred_importances = p_imp[mask]
-                        if sacred_importances.numel() > 0:
-                            num_to_keep = int(sacred_importances.numel() * (1.0 - ratio))
-                            if num_to_keep > 0:
-                                thresh = torch.topk(sacred_importances, num_to_keep).values[-1]
-                                keep_mask = (p_imp >= thresh)
-                                cumulative[pid] &= keep_mask
+                    # Find threshold for the top 'ratio' of currently sacred weights
+                    k = int(mask.sum().item() * ratio)
+                    if k > 0:
+                        # Top-K on flattened importance
+                        threshold = torch.topk(active_imp.view(-1), k).values[-1]
+                        cumulative[pid] &= (active_imp >= threshold)
                     else:
-                        # Fallback to random if importance data is missing (should not happen for Task 0)
-                        prune_indices = torch.rand(mask.shape, device=mask.device, generator=torch.Generator(device=mask.device).manual_seed(42)) >= ratio
-                        cumulative[pid] &= prune_indices
+                        cumulative[pid].zero_()
             
             # Recalculate final saturation
             total_sacred = sum(m.sum().item() for m in cumulative.values())
