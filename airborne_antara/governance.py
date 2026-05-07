@@ -197,7 +197,7 @@ class KnowledgeGovernor:
             for name, module in m.named_modules():
                 # 1. Hard-lock FC rows for ALL completed tasks
                 if "fc" in name.lower() and hasattr(module, 'weight'):
-                    cpt = self.config.classes_per_task
+                    cpt = classes_per_task
                     p = module.weight
                     pid = id(p)
                     if pid not in cumulative:

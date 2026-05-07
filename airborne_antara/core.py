@@ -1374,7 +1374,7 @@ class AdaptiveFramework(nn.Module):
 
                 # [V31.8] STRATEGIC MODE: Surgical Weight Decay (The Shunt)
                 # We apply extra decay to non-sacred weights to force neuron recycling.
-                surgical_wd = self._compute_surgical_weight_decay(wd_rate=1e-6)
+                surgical_wd = self._compute_surgical_weight_decay(wd_rate=1e-4)
 
                 # Aggregation logic inside autocast
                 total_loss = loss + reg_loss + aux_loss + (wm_loss * 0.5) + surgical_wd
@@ -2257,7 +2257,7 @@ class AdaptiveFramework(nn.Module):
                     # Task 1 needs to adapt BN stats to its own distribution to learn.
                     # We rely on weight/bias anchoring to preserve the 'Titanium' foundation.
 
-    def _compute_surgical_weight_decay(self, wd_rate: float = 1e-6) -> torch.Tensor:
+    def _compute_surgical_weight_decay(self, wd_rate: float = 1e-4) -> torch.Tensor:
         """
         [V31.8] STRATEGIC MODE: Differential Weight Decay.
         Applies L2 penalty only to NON-sacred parameters.
