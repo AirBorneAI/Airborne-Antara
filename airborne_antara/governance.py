@@ -254,6 +254,22 @@ class KnowledgeGovernor:
                                     cumulative[pbid][:] = True
 
 
+        # 6. Apply to Unified Memory
+        memory_module.param_id_to_mask = cumulative
+        
+        # [V31.8] SHARED MODULE PROTECTION: Map all expert-aliases to the same physical mask.
+        pid_to_names = {}
+        for m_idx, m in enumerate(memory_module.models):
+            for name, p in m.named_parameters():
+                pid = id(p)
+                if pid not in pid_to_names: pid_to_names[pid] = []
+                pid_to_names[pid].append(f"m{m_idx}_{name}")
+
+        for pid, mask in cumulative.items():
+            if pid in pid_to_names:
+                for name in pid_to_names[pid]:
+                    memory_module.sacred_mask[name] = mask.to(mask.device)
+
         # Commit Mask Updates (Identity-Aware)
         # Use set of PIDs for total_params to avoid overcounting shared backbones
         total_pids = set()
