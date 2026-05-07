@@ -190,7 +190,31 @@ class KnowledgeGovernor:
                 for name in pid_to_names[pid]:
                     memory_module.sacred_mask[name] = mask.to(mask.device)
         
-        # Calculate Saturation (V31.8 Identity-Aware)
+        # [V31.8] Absolute Foundation Lockdown (Backbone Protection)
+        # We strictly freeze early universal feature detectors after Task 0.
+        # This prevents the 'representation drift' that destroys foundational knowledge.
+        if task_id >= 0:
+            for m in memory_module.models:
+                for name, module in m.named_modules():
+                    # Identify early backbone layers (ResNet-style)
+                    is_early = any(x in name.lower() for x in ['conv1', 'bn1', 'layer1', 'layer2'])
+                    if is_early and hasattr(module, 'weight'):
+                        p = module.weight
+                        pid = id(p)
+                        if pid not in cumulative:
+                            cumulative[pid] = torch.ones(p.shape, dtype=torch.bool, device=p.device)
+                        else:
+                            cumulative[pid][:] = True
+                        
+                        if hasattr(module, 'bias') and module.bias is not None:
+                            pb = module.bias
+                            pbid = id(pb)
+                            if pbid not in cumulative:
+                                cumulative[pbid] = torch.ones(pb.shape, dtype=torch.bool, device=pb.device)
+                            else:
+                                cumulative[pbid][:] = True
+
+        # Commit Mask Updates (Identity-Aware)
         # Use set of PIDs for total_params to avoid overcounting shared backbones
         total_pids = set()
         for m in memory_module.models:

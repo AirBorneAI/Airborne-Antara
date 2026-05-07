@@ -853,7 +853,18 @@ class AdaptiveFramework(nn.Module):
         
         # 5. Clear transient buffers
         self.clear_cognitive_buffers()
-        self.logger.info(f"Task {task_id} Knowledge Anchored.")
+        # [V31.8] ETERNAL ANCHOR: Absolute Drift Reversal
+        # Strictly revert any changes to sacred parameters back to their anchored values.
+        # This catches drift from Lookahead, Reptile, and Optimizer artifacts.
+        with torch.no_grad():
+            for name, p in self.named_parameters():
+                mask = self.memory.sacred_mask.get(name)
+                if mask is not None and mask.any():
+                    anchor = self.memory.anchor.get(name)
+                    if anchor is not None:
+                        p.data[mask] = anchor[mask].to(p.device)
+        
+        self.logger.info(f"Task {task_id} knowledge anchored and drift-reverted.")
 
     def _setup_logging(self):
         logger = logging.getLogger('AdaptiveFramework')
@@ -2279,36 +2290,35 @@ class AdaptiveFramework(nn.Module):
         """
         [V31.8] IRON MIND: Internal Weight Alignment (WA).
         Eliminates recency bias by balancing classifier norms across tasks.
+        Targets all Linear modules (Expert heads) in MoE architectures.
         """
         if task_id == 0: return
         
         try:
-            # We assume the last linear layer is the classifier
-            classifier = None
+            aligned_count = 0
             for module in self.model.modules():
-                if isinstance(module, nn.Linear):
-                    classifier = module
+                if not isinstance(module, nn.Linear): continue
+                
+                # Check if this linear layer is likely a task-partitioned classifier
+                # (Output dim should be divisible by classes_per_task)
+                cpt = self.config.classes_per_task
+                total_classes = module.out_features
+                if total_classes < (task_id + 1) * cpt: continue
+                
+                with torch.no_grad():
+                    norms = torch.norm(module.weight.data, p=2, dim=1)
+                    avg_prev = norms[:task_id * cpt].mean().item()
+                    avg_curr = norms[task_id * cpt:(task_id + 1) * cpt].mean().item()
+                    
+                    if avg_prev > 1e-6 and avg_curr > 1e-6:
+                        gamma = avg_prev / avg_curr
+                        module.weight.data[task_id * cpt:(task_id + 1) * cpt, :] *= gamma
+                        if module.bias is not None:
+                            module.bias.data[task_id * cpt:(task_id + 1) * cpt] *= gamma
+                        aligned_count += 1
             
-            if classifier is None: return
-            
-            # Infer classes per task
-            total_classes = classifier.weight.shape[0]
-            num_tasks = task_id + 1
-            cpt = total_classes // num_tasks
-            if cpt == 0: return
-            
-            # Calculate average norm for previous tasks and current task
-            norms = torch.norm(classifier.weight.data, p=2, dim=1)
-            
-            prev_norms = norms[:task_id * cpt]
-            curr_norms = norms[task_id * cpt:(task_id + 1) * cpt]
-            
-            if prev_norms.numel() == 0 or curr_norms.numel() == 0: return
-            
-            avg_prev = prev_norms.mean()
-            avg_curr = curr_norms.mean()
-            
-            gamma = avg_prev / avg_curr
+            if aligned_count > 0:
+                self.logger.info(f"[WA] Knowledge balanced across {aligned_count} heads for Task {task_id}")
             
             # [V31.8] ETERNAL MIND: Absolute Alignment
             # We align regardless of direction to ensure the 'Volume' of each task is equal.
