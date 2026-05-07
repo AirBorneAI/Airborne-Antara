@@ -853,24 +853,27 @@ class AdaptiveFramework(nn.Module):
         
         # 5. Clear transient buffers
         self.clear_cognitive_buffers()
+        # [V31.11] FINAL RE-ANCHORING
+        # After Distillation and Resurrection, we must capture the new 'Truth'
+        # so that _apply_sacred_restoration doesn't immediately revert them during the next task.
+        if self.memory:
+            self.memory.update_anchors()
+            self._rebuild_restoration_cache()
+
         # [V31.8] ETERNAL ANCHOR: Absolute Drift Reversal
         # Strictly revert any changes to sacred parameters back to their anchored values.
         # This catches drift from Lookahead, Reptile, and Optimizer artifacts.
         with torch.no_grad():
             # [V31.11] PREFIX ALIGNMENT: Governance uses m{idx}_ prefixes for multi-model tracking
-            tracked_models = getattr(self, 'tracked_models', [self.model])
-            for m_idx, model in enumerate(tracked_models):
+            for m_idx, model in enumerate(self.memory.models):
                 for n, p in model.named_parameters():
                     unique_name = f"m{m_idx}_{n}"
                     mask = self.memory.sacred_mask.get(unique_name)
                     if mask is not None and mask.any():
                         anchor = self.memory.anchor.get(unique_name)
                         if anchor is not None:
-                            p.data[mask] = anchor[mask].to(p.device)
-            
-            # [V31.11] FINAL SYNC: Update anchors one last time to capture surgical modifications
-            self.memory.update_anchors()
-
+                            p.data[mask] = anchor[mask.to(anchor.device)].to(p.device)
+        
         self.logger.info(f"Task {task_id} knowledge anchored, drift-reverted, and re-synchronized.")
 
     def _setup_logging(self):
