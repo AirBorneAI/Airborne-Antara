@@ -47,8 +47,9 @@ class AdaptiveExpertBlock(nn.Module):
         mod = self.modulation(x_flat)
         scale, shift = torch.chunk(mod, 2, dim=-1)
         
-        # [V31.7] Bounded Scale: Prevent FiLM explosion
-        scale = torch.tanh(scale)
+        # [V31.7] Bounded Scale & Shift: Prevent Expert Modulation explosion (The Shunt)
+        scale = torch.tanh(scale) * 0.4 # Bound scale to [-0.4, 0.4]
+        shift = torch.tanh(shift) * 1.0 # Bound shift to [-1.0, 1.0]
         
         # 2. Reshape for broadcasting
         view_shape = [x.size(0)] + [1] * (x.dim() - 1)
@@ -118,8 +119,9 @@ class GatingNetwork(nn.Module):
             
         # [V31.15] MIRRORMIND SHARPENING:
         # Use a much lower temperature during evaluation to force 1-hot routing.
-        eff_temp = 0.1 if not self.training else self.temperature
-        logits = logits / max(eff_temp, 1e-8)
+        # [V31.15] Hard Floor: Ensure temperature never causes logit overflow.
+        eff_temp = 0.1 if not self.training else max(self.temperature, 0.5)
+        logits = logits / eff_temp
         
         # [V27] Autonomous Feature-Based Routing
         # We removed the hard task-id mask to ensure the router learns to 

@@ -798,6 +798,8 @@ class AdaptiveFramework(nn.Module):
             self._rebuild_restoration_cache()
             self.apply_cas_protection()
             self._sanitize_optimizer_state()
+            # [V31.18] Cleanup transient buffers to free VRAM for next task
+            self.clear_cognitive_buffers()
 
         # [V31.8] STRATEGIC MODE: Holographic Anchor Lockdown
         # If this is Task 0, we capture a snapshot of the perception latent space
@@ -1063,15 +1065,22 @@ class AdaptiveFramework(nn.Module):
                     # [BUGFIX] Apply Sentient Affine Modifiers ONLY during training 
                     # to prevent Task 1 leakage from suppressing Task 0 during evaluation
                     if self.training and getattr(self, 'current_modifiers', None) is not None:
+                        mods = self.current_modifiers
+                        
+                        # [V31.15] MIRRORMIND WARM-UP: Dampen modifiers at task start
+                        # to allow the model to stabilize features before System 2 takes over.
+                        steps_since_start = getattr(self, '_steps_since_task_start', 1000)
+                        warmup_scale = min(1.0, max(0.01, steps_since_start / 200.0))
+                        
                         if mods.dim() == 1:
-                            scale = 1.0 + mods[0].clamp(-0.4, 0.4)
-                            shift = mods[1].clamp(-1.0, 1.0)
+                            scale = 1.0 + (mods[0].clamp(-0.4, 0.4) * warmup_scale)
+                            shift = mods[1].clamp(-1.0, 1.0) * warmup_scale
                         else:
                             # Batch of modifiers: [B, 2]
                             b_size = inp.size(0)
                             if mods.size(0) == b_size:
-                                s = mods[:, 0].clamp(-0.4, 0.4)
-                                f = mods[:, 1].clamp(-1.0, 1.0)
+                                s = mods[:, 0].clamp(-0.4, 0.4) * warmup_scale
+                                f = mods[:, 1].clamp(-1.0, 1.0) * warmup_scale
                                 for _ in range(inp.dim() - 1):
                                     s = s.unsqueeze(-1)
                                     f = f.unsqueeze(-1)
@@ -1080,8 +1089,8 @@ class AdaptiveFramework(nn.Module):
                             else:
                                 # Fallback to scalar mean
                                 m = mods.mean(dim=0)
-                                scale = 1.0 + m[0].clamp(-0.4, 0.4)
-                                shift = m[1].clamp(-1.0, 1.0)
+                                scale = 1.0 + (m[0].clamp(-0.4, 0.4) * warmup_scale)
+                                shift = m[1].clamp(-1.0, 1.0) * warmup_scale
                         inp = inp * scale + shift
                     
                     if inp is not output:
@@ -1132,7 +1141,9 @@ class AdaptiveFramework(nn.Module):
         
         try:
             # Aggregate Telemetry
-            global_state = self.telemetry_buffer.mean(dim=0)
+            # [V31.15] MIRRORMIND SANITIZATION: nan_to_num before mean to prevent 
+            # numerical plague from single corrupted steps.
+            global_state = torch.nan_to_num(self.telemetry_buffer, nan=0.0).mean(dim=0)
             global_state = torch.nan_to_num(global_state, nan=0.0)
             
             # Introspection Step
@@ -1189,6 +1200,10 @@ class AdaptiveFramework(nn.Module):
         self._current_wm_inputs = None
         self._last_latent = None
         
+        # [V31.15] Telemetry Purge: Clear old features to prevent cross-step leakage
+        if hasattr(self, 'telemetry_buffer'):
+            self.telemetry_buffer.data.zero_()
+        
         # Clear auxiliary losses in MoE
         if hasattr(self.model, 'zero_grad'):
             self.model.zero_grad(set_to_none=True)
@@ -1218,10 +1233,17 @@ class AdaptiveFramework(nn.Module):
         """[V8.3] Explicitly clear all meta-learning and consciousness buffers."""
         self.meta_log_probs.clear()
         self.current_modifiers = None
+        
+        # [V31.15] MIRRORMIND FLUSH: Purge telemetry to prevent Task-Lag explosion
+        if hasattr(self, 'telemetry_buffer'):
+            self.telemetry_buffer.data.zero_()
+            
         if self.consciousness:
             self.consciousness.current_thought_trace.clear()
-            # We don't clear the thought_stream as it's a deque for long-term stats,
-            # but we could clear it if memory pressure is critical.
+            # Clear running stats in consciousness if any
+            if hasattr(self.consciousness, 'thought_stream'):
+                self.consciousness.thought_stream.clear()
+        
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
@@ -1293,6 +1315,9 @@ class AdaptiveFramework(nn.Module):
             if task_id != self._prev_train_task_id:
                 self.logger.info(f"[WARRIOR] New Task Detected: {task_id}. Purging Optimizer Momentum...")
                 self._sanitize_optimizer_state()
+                
+                # [V31.15] MIRRORMIND TRANSITION: Flush telemetry and modifiers
+                self.clear_cognitive_buffers()
                 
                 # [V31.15] MIRRORMIND TRANSITION: 
                 # Also reset introspection engine state if it exists, as Task 0's 
@@ -1968,28 +1993,6 @@ class AdaptiveFramework(nn.Module):
             self._internal_consolidation_mode = False
 
         
-    def on_task_complete(self, task_id: int):
-        """
-        Finalize task knowledge, update sacred masks, and anchor parameters.
-        """
-        # 1. Update Memory Statistics (Fisher/SI)
-        if self.memory:
-             # In some versions, consolidate is called here
-             self.memory.on_task_complete(task_id)
-
-        # 2. Update Sacred Mask (The Hard-Lock)
-        if self.governor:
-            self.governor.update_sacred_mask(self.memory, task_id, self.model)
-            
-        # 3. Enforce Protection (Gradient Shunting)
-        self.apply_cas_protection()
-        
-        # 4. Rebuild Restoration Cache (Post-Optimizer Recovery)
-        self._rebuild_restoration_cache()
-        
-        # 5. Clear transient buffers to free VRAM for next task
-        self.clear_cognitive_buffers()
-        self.logger.info(f"[ANTARA] Task {task_id} Knowledge Anchored. Iron Mind Active.")
 
     def consolidate_memory(self, **kwargs):
         """Wrapper for Unified Memory consolidation (Backward Compatibility)."""

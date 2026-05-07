@@ -634,12 +634,25 @@ class UnifiedMemoryHandler:
                                 if unique_name not in self.omega_accum:
                                     self.omega_accum[unique_name] = torch.zeros_like(p).detach()
                                 
-                                # [V31.7] NaN Immunity: Prevent numerical corruption of memory
+                                # [V31.15] MIRRORMIND SANITIZATION: Clamp and nan_to_num
+                                # to prevent gradient spikes from poisoning omega.
                                 inc = (-g * delta).detach()
-                                self.omega_accum[unique_name].add_(torch.nan_to_num(inc, nan=0.0))
+                                inc = torch.nan_to_num(inc, nan=0.0).clamp(-1e4, 1e4)
+                                self.omega_accum[unique_name].add_(inc)
         except Exception:
             pass
     
+    def on_task_complete(self, task_id: int, feedback_buffer=None, **kwargs):
+        """
+        Alias for consolidate with FINAL mode, used for task anchoring.
+        """
+        return self.consolidate(
+            mode='FINAL', 
+            task_id=task_id, 
+            feedback_buffer=feedback_buffer,
+            **kwargs
+        )
+
     def consolidate(self, 
                     feedback_buffer=None,
                     current_step: int = 0,
@@ -663,9 +676,9 @@ class UnifiedMemoryHandler:
                         s = _accum
                         anchor = self.anchor.get(unique_name, p.clone().detach()).to(p.device)
                         
-                        # Damping + Epsilon to prevent NaN
+                        # [V31.15] Stabilize denominator and clamp outputs
                         denom = (p.data - anchor).pow(2) + self.si_xi
-                        denom = torch.clamp(denom, min=1e-8)
+                        denom = torch.clamp(denom, min=1e-6)
                         
                         new_omega = s / denom
                         # Fuse and accumulate
@@ -1039,6 +1052,12 @@ class UnifiedMemoryHandler:
                                 ewc_loss += (self.fisher_dict[unique_name].to(p.device) * (p - anchor).pow(2)).sum()
             loss += ewc_loss * (self.ewc_lambda * lamb)
 
+        # [V31.15] MIRRORMIND PROTECTION: Absolute Penalty Ceiling
+        # If importance metrics explode (Numerical Plague), this prevents 
+        # the loss from destroying the model weights.
+        loss = torch.nan_to_num(loss, nan=0.0, posinf=500.0)
+        loss = torch.clamp(loss, max=500.0)
+        
         return loss
 
     # --- Task Memory I/O ---

@@ -297,9 +297,12 @@ class KnowledgeGovernor:
         
         # [V31.7] Bug #8 Fix: Enforce Quota Ceiling (Emergency Pruning)
         if memory_module.saturation_level > self.quota:
-            self.logger.warning(f"[IRON MIND] Saturation ({memory_module.saturation_level:.2%}) exceeds quota ({self.quota:.2%}). Pruning mask...")
-            # Proportional pruning of masks to fit within quota
-            ratio = self.quota / memory_module.saturation_level
+            # [V31.15] MIRRORMIND PROTECTION: Ratio must be safe against zero saturation
+            sat_lvl = max(memory_module.saturation_level, 1e-6)
+            ratio = self.quota / sat_lvl
+            # If saturation is below quota, no pruning needed (ratio > 1.0)
+            if ratio >= 1.0: return
+            
             for pid, mask in cumulative.items():
                 # Protect small critical layers (FC heads, Gates) and ALL Batch Normalization from random pruning
                 # [V31.8] Hard-Locks are also exempt.
@@ -318,12 +321,15 @@ class KnowledgeGovernor:
                 # [V31.15] TITANIUM FOUNDATION PROTECTION:
                 # Task 0 is the universal foundation. We NEVER prune it.
                 # If the quota is exceeded, we must prune newer, less foundational tasks instead.
-                is_task0 = "task0" in p_name or any(f"task0" in str(k) for k in memory_module.task_omega_snapshots.keys() if k == 0)
-                # Actually, check the pid against task_omega_snapshots[0]
                 is_task0_sacred = False
                 if 0 in memory_module.task_omega_snapshots:
+                    # Check if this parameter was snapshotted in Task 0
                     if pid in memory_module.task_omega_snapshots[0]:
                         is_task0_sacred = True
+                
+                # Check for explicit task0 naming in modules
+                if "task0" in p_name:
+                    is_task0_sacred = True
 
                 if mask.numel() > 512 and not is_critical and not is_task0_sacred: 
                     # [V31.11] TITANIUM PRUNING: Importance-Aware Quota Enforcement
