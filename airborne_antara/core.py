@@ -1255,22 +1255,7 @@ class AdaptiveFramework(nn.Module):
         # [V9.4] BatchNorm Stabilization (NeurIPS Killshot)
         # Ensure that anchored modules stay in .eval() mode to prevent 
         # running_mean/var drift during forward passes of new tasks.
-        if self.memory and hasattr(self.memory, 'sacred_mask'):
-            for m_name, m in self.named_modules():
-                # If any parameter in this module is sacred, we stabilize BN
-                is_sacred_module = False
-                for p_name, p in m.named_parameters(recurse=False):
-                    full_p_name = f"{m_name}.{p_name}" if m_name else p_name
-                    if full_p_name in self.memory.sacred_mask and self.memory.sacred_mask[full_p_name].any():
-                        is_sacred_module = True
-                        break
-                
-                # [V31.7] BN FLUIDITY: We no longer force eval() on sacred modules.
-                # Surgical Restoration handles weight protection, but we allow 
-                # running stats to adapt to the current task distribution.
-                # if is_sacred_module and isinstance(m, (torch.nn.modules.batchnorm._BatchNorm)):
-                #     m.eval()
-                #     m.track_running_stats = False # Absolute Freeze
+        self._lock_sacred_bn()
 
         # [V9.4] Unified Memory Snapshot (Full-Spectrum Coverage)
         # Capture parameters before optimizer.step() for ALL models in the memory system.
@@ -2215,6 +2200,12 @@ class AdaptiveFramework(nn.Module):
             },
             "device": str(self.device)
         }
+
+    def _lock_sacred_bn(self):
+        """[V31.8] GLOBAL CRYOSYSTASIS: Force all sacred BN modules into eval mode."""
+        if hasattr(self, '_cached_sacred_bn'):
+            for module, _, _ in self._cached_sacred_bn:
+                module.eval()
 
     def _apply_sacred_restoration(self):
         """

@@ -210,37 +210,6 @@ class SparseMoE(nn.Module):
         else:
             weights, indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
         
-        # [V31.8] ETERNAL MIND: Absolute Expert Isolation (NeurIPS Killshot)
-        # 1. In Internal Maintenance Mode (Dreaming/Replay), we lock ALL experts' BN.
-        # 2. In standard training, we lock all experts EXCEPT the active target.
-        locked_experts = []
-        if self.training:
-            if internal_mode:
-                # Total BN Cryostasis for replay
-                locked_experts = list(range(self.num_experts))
-            elif task_id is not None:
-                # Lock all experts except current target
-                target_expert = task_id % self.num_experts
-                locked_experts = [i for i in range(self.num_experts) if i != target_expert]
-
-        # [V31.8] Identity-Aware Lockdown: Ensure shared backbones are strictly locked
-        for idx in locked_experts:
-            for m in self.experts[idx].modules():
-                if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
-                    m.eval()
-                    # Force track_running_stats off temporarily if we want absolute zero drift
-                    # m.track_running_stats = False 
-        
-        # [V31.8] ETERNAL MIND: Path-Specific BN Lockdown
-        # Expert 0 is our 'Sacred Foundation'. When training on new tasks, 
-        # we lock its BN layers to prevent statistic poisoning.
-        locked_bn = False
-        if self.training and task_id is not None and task_id > 0:
-            for m in self.experts[0].modules():
-                if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
-                    m.eval() # Force to eval mode
-            locked_bn = True
-
         # [V31.8] STRATEGIC MODE: Expert Dropout (The Ghost Expert)
         # Randomly mute one expert during training to force expert redundancy.
         # This prevents 'Master Expert' dependency and encourages distributed knowledge.
@@ -279,13 +248,6 @@ class SparseMoE(nn.Module):
             # [V31.8] ETERNAL MIND: Ensure type alignment for index_add (Critical for AMP)
             contribution = (expert_out * selected_weights).to(final_output.dtype)
             final_output = final_output.index_add(0, batch_idx, contribution)
-            
-        # [V31.8] Restore BN mode for all locked experts
-        if self.training and locked_experts:
-            for idx in locked_experts:
-                for m in self.experts[idx].modules():
-                    if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
-                        m.train()
 
         return final_output, indices
 
