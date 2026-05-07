@@ -233,35 +233,36 @@ class KnowledgeGovernor:
         # [V31.8] Absolute Foundation Lockdown (Backbone Protection)
         # We strictly freeze early universal feature detectors after Task 0.
         # This prevents the 'representation drift' that destroys foundational knowledge.
+        # [V31.11] TITANIUM EXPERT ISOLATION:
+        # We only lock the foundational features of the experts that were actually TRAINED.
+        # This preserves 100% plasticity for future experts.
+        target_expert_idx = task_id % 8 # Hard-coded for 8 experts based on H-MoE config
+        
         if task_id >= 0:
-            for m in memory_module.models:
+            for m_idx, m in enumerate(memory_module.models):
                 for name, module in m.named_modules():
                     # Identify early backbone layers (ResNet-style)
-                    # [V31.9] GRADUAL LOCKDOWN:
-                    # After Task 0, only lock conv1/bn1. 
-                    # After Task 2, lock layer1. After Task 4, lock layer2.
-                    if task_id == 0:
+                    # Example name: domains.0.experts.0.model.conv1
+                    is_this_expert = f"experts.{target_expert_idx}" in name
+                    
+                    if is_this_expert:
                         is_early = any(x in name.lower() for x in ['conv1', 'bn1'])
-                    elif task_id <= 2:
-                        is_early = any(x in name.lower() for x in ['conv1', 'bn1', 'layer1'])
-                    else:
-                        is_early = any(x in name.lower() for x in ['conv1', 'bn1', 'layer1', 'layer2'])
-
-                    if is_early and hasattr(module, 'weight'):
-                        p = module.weight
-                        pid = id(p)
-                        if pid not in cumulative:
-                            cumulative[pid] = torch.ones(p.shape, dtype=torch.bool, device=p.device)
-                        else:
-                            cumulative[pid][:] = True
-                        
-                        if hasattr(module, 'bias') and module.bias is not None:
-                            pb = module.bias
-                            pbid = id(pb)
-                            if pbid not in cumulative:
-                                cumulative[pbid] = torch.ones(pb.shape, dtype=torch.bool, device=pb.device)
+                        if is_early and hasattr(module, 'weight'):
+                            p = module.weight
+                            pid = id(p)
+                            if pid not in cumulative:
+                                cumulative[pid] = torch.ones(p.shape, dtype=torch.bool, device=p.device)
                             else:
-                                cumulative[pbid][:] = True
+                                cumulative[pid][:] = True
+                            
+                            if hasattr(module, 'bias') and module.bias is not None:
+                                pb = module.bias
+                                pbid = id(pb)
+                                if pbid not in cumulative:
+                                    cumulative[pbid] = torch.ones(pb.shape, dtype=torch.bool, device=pb.device)
+                                else:
+                                    cumulative[pbid][:] = True
+
 
         # Commit Mask Updates (Identity-Aware)
         # Use set of PIDs for total_params to avoid overcounting shared backbones
@@ -289,13 +290,14 @@ class KnowledgeGovernor:
                 names = pid_to_names.get(pid, [])
                 p_name = names[0].lower() if names else ""
                 
-                # Exemption Criteria: BN, FC, Gate, or early ResNet layers
+                # [V31.10] ABSOLUTE QUOTA: No more backbone exemptions.
+                # Only BN, FC, and Gate are critical to task identity.
                 is_bn = "bn" in p_name or "norm" in p_name
                 is_fc = "fc" in p_name
                 is_gate = "gate" in p_name
-                is_early = any(x in p_name for x in ['conv1', 'layer1', 'layer2'])
                 
-                is_critical = is_bn or is_fc or is_gate or is_early
+                is_critical = is_bn or is_fc or is_gate
+
 
                 if mask.numel() > 512 and not is_critical: 
                     # Use deterministic-ish pruning based on random sampling
