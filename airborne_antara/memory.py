@@ -595,6 +595,25 @@ class UnifiedMemoryHandler:
                     results[unique_name] = p.data.clone().detach()
         return results
     
+    def update_anchors(self):
+        """
+        [V31.8] Manual Anchor Update.
+        Used to set a new 'Truth' baseline after surgical weight modifications 
+        (e.g. Neural Resurrection or Expert Distillation) that occur after consolidation.
+        """
+        with torch.no_grad():
+            for m_idx, model in enumerate(self.models):
+                for n, p in model.named_parameters():
+                    if p.requires_grad:
+                        unique_name = f"m{m_idx}_{n}"
+                        self.anchor[unique_name] = p.data.clone().detach().float().cpu()
+                
+                # [V31.11] BN Cryostasis: Also anchor running stats
+                for n, b in model.named_buffers():
+                    if 'running_mean' in n or 'running_var' in n:
+                        unique_name = f"m{m_idx}_{n}"
+                        self.anchor[unique_name] = b.data.clone().detach().float().cpu()
+
     def accumulate_path(self, param_before: Dict[str, torch.Tensor]) -> None:
         """SI path-integral accumulation: s_i += -g_i * delta_theta_i"""
         if self.method not in ['si', 'hybrid'] or not param_before:

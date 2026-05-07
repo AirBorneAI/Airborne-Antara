@@ -857,14 +857,21 @@ class AdaptiveFramework(nn.Module):
         # Strictly revert any changes to sacred parameters back to their anchored values.
         # This catches drift from Lookahead, Reptile, and Optimizer artifacts.
         with torch.no_grad():
-            for name, p in self.named_parameters():
-                mask = self.memory.sacred_mask.get(name)
-                if mask is not None and mask.any():
-                    anchor = self.memory.anchor.get(name)
-                    if anchor is not None:
-                        p.data[mask] = anchor[mask].to(p.device)
-        
-        self.logger.info(f"Task {task_id} knowledge anchored and drift-reverted.")
+            # [V31.11] PREFIX ALIGNMENT: Governance uses m{idx}_ prefixes for multi-model tracking
+            tracked_models = getattr(self, 'tracked_models', [self.model])
+            for m_idx, model in enumerate(tracked_models):
+                for n, p in model.named_parameters():
+                    unique_name = f"m{m_idx}_{n}"
+                    mask = self.memory.sacred_mask.get(unique_name)
+                    if mask is not None and mask.any():
+                        anchor = self.memory.anchor.get(unique_name)
+                        if anchor is not None:
+                            p.data[mask] = anchor[mask].to(p.device)
+            
+            # [V31.11] FINAL SYNC: Update anchors one last time to capture surgical modifications
+            self.memory.update_anchors()
+
+        self.logger.info(f"Task {task_id} knowledge anchored, drift-reverted, and re-synchronized.")
 
     def _setup_logging(self):
         logger = logging.getLogger('AdaptiveFramework')

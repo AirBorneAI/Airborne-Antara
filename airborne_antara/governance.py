@@ -310,10 +310,34 @@ class KnowledgeGovernor:
                 is_critical = is_bn or is_fc or is_gate
 
 
-                if mask.numel() > 512 and not is_critical: 
-                    # Use deterministic-ish pruning based on random sampling
-                    prune_indices = torch.rand(mask.shape, device=mask.device, generator=torch.Generator(device=mask.device).manual_seed(42)) < ratio
-                    cumulative[pid] &= prune_indices
+                if not is_critical:
+                    # [V31.11] TITANIUM PRUNING: Importance-Aware Quota Enforcement.
+                    # Instead of random sampling, we use the importance snapshots (SI/Fisher) 
+                    # from Task 0 to ensure that if we MUST prune, we prune the least useful bits.
+                    t0_stats = memory_module.task_omega_snapshots.get(0, {})
+                    p_imp = None
+                    for name in names:
+                        if name in t0_stats:
+                            p_imp = t0_stats[name]
+                            break
+                    
+                    if p_imp is not None:
+                        # Prune the bottom 'ratio' percentage of sacred bits
+                        # mask currently has sacred bits. We want to keep only the top (1-ratio) percentage of bits.
+                        # Actually, ratio is the percentage we want to REDUCE the sacred set BY.
+                        # So if we have 11.8% and want 8%, ratio is ~0.32 (32% reduction).
+                        p_imp = p_imp.to(mask.device)
+                        sacred_importances = p_imp[mask]
+                        if sacred_importances.numel() > 0:
+                            num_to_keep = int(sacred_importances.numel() * (1.0 - ratio))
+                            if num_to_keep > 0:
+                                thresh = torch.topk(sacred_importances, num_to_keep).values[-1]
+                                keep_mask = (p_imp >= thresh)
+                                cumulative[pid] &= keep_mask
+                    else:
+                        # Fallback to random if importance data is missing (should not happen for Task 0)
+                        prune_indices = torch.rand(mask.shape, device=mask.device, generator=torch.Generator(device=mask.device).manual_seed(42)) >= ratio
+                        cumulative[pid] &= prune_indices
             
             # Recalculate final saturation
             total_sacred = sum(m.sum().item() for m in cumulative.values())
