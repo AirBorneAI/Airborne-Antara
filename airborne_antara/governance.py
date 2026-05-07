@@ -161,15 +161,25 @@ class KnowledgeGovernor:
                         if "experts." in m_name:
                             try: e_idx = int(m_name.split("experts.")[1].split(".")[0])
                             except: pass
+                        
+                        # [V31.8] Dynamically determine expert count
+                        expert_indices = set()
+                        for m_inf in memory_module.models:
+                            for n_inf, _ in m_inf.named_modules():
+                                if "experts." in n_inf:
+                                    try: expert_indices.add(int(n_inf.split("experts.")[1].split(".")[0]))
+                                    except: continue
+                        n_exp = len(expert_indices) if expert_indices else 8
                             
                         # Lock rows for ALL completed tasks
                         for t in range(task_id + 1):
                             s, e = t * cpt, min((t + 1) * cpt, num_classes)
+                            if s >= e: continue
                             
                             # EXPERT-CLASS AFFINITY:
                             # 1. If this expert owns the task, lock the trained weights.
                             # 2. If it does NOT own the task, zero and lock to prevent interference.
-                            is_owner = (e_idx == -1) or (e_idx == (t % 8))
+                            is_owner = (e_idx == -1) or (e_idx == (t % n_exp))
                             
                             if is_owner:
                                 # Standard lock

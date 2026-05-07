@@ -179,6 +179,8 @@ class SparseMoE(nn.Module):
         """
         [V31.8] STRATEGIC MODE: Task-Informed Initialization.
         Initializes a new expert as a noisy copy of a successful old expert.
+        [V31.12] BUGFIX: We zero out the classification head for non-source classes
+        to prevent 'Negative Bias Explosion' where new tasks inherit suppression weights.
         """
         if source_idx >= self.num_experts or target_idx >= self.num_experts:
             return
@@ -188,6 +190,25 @@ class SparseMoE(nn.Module):
         for k, v in source_state.items():
             # Add a tiny bit of noise to break symmetry
             new_state[k] = v.clone() + torch.randn_like(v) * v.std() * noise_scale
+            
+            # [V31.12] Head Sanitization: If this is a classification head (fc.weight/bias),
+            # we zero out all rows except the ones belonging to the source expert's identity.
+            # This ensures the new expert starts with a 'neutral' outlook on its future tasks.
+            if "fc." in k:
+                # Assuming source expert 'owns' classes [source_idx*10, (source_idx+1)*10]
+                # for standard CIFAR100 setup. 
+                # We'll use a more general approach: zero everything, then restore source rows.
+                mask = torch.zeros(v.shape[0], dtype=torch.bool, device=v.device)
+                # Heuristic: source_idx * 10 (cpt)
+                s, e = source_idx * 10, (source_idx + 1) * 10
+                if s < v.shape[0]:
+                    mask[s:min(e, v.shape[0])] = True
+                    
+                # Zero out non-source rows
+                if v.dim() > 1: # weight
+                    new_state[k][~mask, :] = 0.0
+                else: # bias
+                    new_state[k][~mask] = 0.0
             
         self.experts[target_idx].load_state_dict(new_state)
 
@@ -300,20 +321,28 @@ class HierarchicalMoE(nn.Module):
                 # Expert gate weights for this domain
                 e_weights, e_indices = domain.gate(x, task_id=None, consciousness_state=consciousness_state)
                 
+                # Weight of this domain relative to others
+                d_w = domain_weights[:, 0].view(-1, 1) # [batch, 1]
+                
                 for i, expert in enumerate(domain.experts):
                     out = expert(x, task_id=None)
                     if isinstance(out, tuple): out = out[0]
                     
-                    # Simplify: Just pick the expert the gate likes best
-                    all_expert_outputs.append(out.unsqueeze(1))
+                    # [V9.5] Gated Logits: Weight expert output by its specific gate probability.
+                    # This suppresses noise from experts that the router did not select.
+                    # e_weights is [batch, top_k], e_indices is [batch, top_k]
+                    e_w = torch.zeros(x.size(0), 1, device=x.device)
+                    for k in range(domain.top_k):
+                        mask = (e_indices[:, k] == i)
+                        e_w[mask] = e_weights[mask, k:k+1]
+                    
+                    weighted_out = out * e_w * d_w
+                    all_expert_outputs.append(weighted_out.unsqueeze(1))
             
             all_expert_outputs = torch.cat(all_expert_outputs, dim=1)
-            # Use Gating for final decision
-            max_logits, _ = torch.max(all_expert_outputs, dim=2)
-            best_expert_idx = torch.argmax(max_logits, dim=1)
-            
-            batch_idx = torch.arange(x.size(0), device=x.device)
-            final_output = all_expert_outputs[batch_idx, best_expert_idx, :]
+            # [V9.5] Final output is the weighted sum of all experts.
+            # This is mathematically stable and eliminates logit interference.
+            final_output = all_expert_outputs.sum(dim=1)
             
             return final_output, domain_indices
 

@@ -751,10 +751,38 @@ class AdaptiveFramework(nn.Module):
         print(f"\n[ANTARA] Task {task_id} complete. Anchoring Knowledge...")
         
         # [V31.8] Weight Alignment (WA): Eliminate Recency Bias BEFORE Anchoring
-        # This ensures the 'Sacred' weights we restore are already balanced.
         self._apply_internal_wa(task_id)
         
+        # [V31.8] STRATEGIC MODE: Task-Informed Initialization
+        # Distill FIRST so that we can zero out the heads of the new copies.
+        if task_id == 0 and hasattr(self.model, 'distill_expert'):
+            self.logger.info("🧪 Distilling Task 0 knowledge to new experts...")
+            for i in range(1, getattr(self.model, 'num_experts', 1)):
+                self.model.distill_expert(source_idx=0, target_idx=i, noise_scale=0.01)
+
+        # [V31.12] PRE-CONSOLIDATION ZEROING:
+        # We must zero out non-owner expert heads BEFORE consolidation 
+        # so that the 'Anchor' captured by memory is exactly 0.0.
+        if hasattr(self.model, 'named_modules'):
+            cpt = self.config.classes_per_task
+            n_exp = getattr(self.model, 'num_experts', 8)
+            with torch.no_grad():
+                for m_name, module in self.model.named_modules():
+                    if "fc" in m_name.lower() and hasattr(module, 'weight'):
+                        e_idx = -1
+                        if "experts." in m_name:
+                            try: e_idx = int(m_name.split("experts.")[1].split(".")[0])
+                            except: pass
+                        
+                        if e_idx != -1 and e_idx != (task_id % n_exp):
+                            # This expert does NOT own this task. Zero its head for this task.
+                            s, e = task_id * cpt, (task_id + 1) * cpt
+                            module.weight.data[s:e, :] = 0.0
+                            if hasattr(module, 'bias') and module.bias is not None:
+                                module.bias.data[s:e] = 0.0
+
         # 1. Consolidate Memory (EWC/SI)
+        # Now captures the correct state: Expert 0 has Task 0 weights, others have 0.0.
         if self.memory and self.memory.method != 'none':
             self.memory.consolidate(
                 task_id=task_id, 
@@ -763,6 +791,14 @@ class AdaptiveFramework(nn.Module):
                 mode='FINAL'
             )
 
+        # 2. Update Governance (Iron Mind Quota)
+        # This will now 'Lock' the zeroes we just anchored.
+        if self.governor:
+            self.governor.update_sacred_mask(self.memory, task_id, self.model, classes_per_task=self.config.classes_per_task)
+            self._rebuild_restoration_cache()
+            self.apply_cas_protection()
+            self._sanitize_optimizer_state()
+
         # [V31.8] STRATEGIC MODE: Holographic Anchor Lockdown
         # If this is Task 0, we capture a snapshot of the perception latent space
         # to use as a 'forbidden zone' for subsequent tasks.
@@ -770,14 +806,6 @@ class AdaptiveFramework(nn.Module):
             if self._last_latent is not None:
                 # Capture the LAST seen features of Task 0 as the 'Sacred Anchor'
                 self.perception.holographic_anchor = self._last_latent.detach().cpu()
-        
-        # 2. Update Governance (Iron Mind Quota)
-        if self.governor:
-            self.governor.update_sacred_mask(self.memory, task_id, self.model, classes_per_task=self.config.classes_per_task)
-            # [V26.5] Rebuild restoration cache for immediate protection of new knowledge
-            self._rebuild_restoration_cache()
-            # [V30.2] ENFORCE PROTECTION: Immediately lock BN stats and install shunts
-            self.apply_cas_protection()
         
         # 3. Entropy-Driven Expert Sharpening (Temperature Decay)
         if getattr(self.config, 'use_moe', False):
@@ -791,16 +819,6 @@ class AdaptiveFramework(nn.Module):
             if hasattr(self.model, 'set_temperature'):
                 self.model.set_temperature(new_temp)
             self.logger.info(f"🔥 MoE Sharpening: Temperature adjusted to {new_temp:.4f}")
-
-        # [V31.8] STRATEGIC MODE: Task-Informed Initialization
-        # After Task 0, we use its successful state to 'seed' the other experts.
-        # This provides a 'soft landing' for the next task.
-        if task_id == 0 and hasattr(self.model, 'distill_expert'):
-            # Expert 0 is our 'Titanium' baseline from Task 0.
-            # We seed the others with a noisy copy to break symmetry.
-            self.logger.info("🧪 Distilling Task 0 knowledge to new experts...")
-            for i in range(1, getattr(self.model, 'num_experts', 1)):
-                self.model.distill_expert(source_idx=0, target_idx=i, noise_scale=0.01)
 
         # [V31.8] ETERNAL MIND: Neural Resurrection (Cleanup & Re-allocation)
         # After Task 0, we prune 10% of the LEAST important weights.
@@ -2203,6 +2221,41 @@ class AdaptiveFramework(nn.Module):
                 pass
                 
         return pred, diagnostics
+
+    def _sanitize_optimizer_state(self):
+        """
+        [V31.8] TITANIUM LOCK: Zero out optimizer momentum and variance for sacred weights.
+        This prevents the optimizer from trying to 'undo' the sacred restoration snap.
+        """
+        if not hasattr(self, 'optimizer') or self.optimizer is None:
+            return
+            
+        with torch.no_grad():
+            for name, p in self.model.named_parameters():
+                if p in self.optimizer.state:
+                    state = self.optimizer.state[p]
+                    # Map unique name to sacred mask
+                    # Assuming standard m0 prefix for framework tracked models
+                    # [V31.8] We iterate through all experts if MoE
+                    unique_names = [f"m{i}_{name}" for i in range(getattr(self.model, 'num_experts', 8))]
+                    
+                    mask = None
+                    for un in unique_names:
+                        if un in self.memory.sacred_mask:
+                            m = self.memory.sacred_mask[un]
+                            if mask is None: mask = m.clone()
+                            else: mask = mask | m
+                    
+                    if mask is not None and mask.any():
+                        mask = mask.to(p.device)
+                        # Zero exp_avg (momentum)
+                        if 'exp_avg' in state:
+                            state['exp_avg'][mask] = 0.0
+                        # Zero exp_avg_sq (variance/velocity)
+                        if 'exp_avg_sq' in state:
+                            state['exp_avg_sq'][mask] = 0.0
+        
+        self.logger.info("🛡️ Optimizer state sanitized for Titanium locked weights.")
 
     def status(self) -> Dict[str, Any]:
         """
