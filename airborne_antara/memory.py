@@ -635,9 +635,10 @@ class UnifiedMemoryHandler:
                                     self.omega_accum[unique_name] = torch.zeros_like(p).detach()
                                 
                                 # [V31.15] MIRRORMIND SANITIZATION: Clamp and nan_to_num
-                                # to prevent gradient spikes from poisoning omega.
+                                # [V31.16] MIRRORMIND CAUTERIZATION: Absolute Increment Clamp
+                                # Prevents a single high-loss step from poisoning the omega forever.
                                 inc = (-g * delta).detach()
-                                inc = torch.nan_to_num(inc, nan=0.0).clamp(-1e4, 1e4)
+                                inc = torch.nan_to_num(inc, nan=0.0).clamp(-10.0, 10.0)
                                 self.omega_accum[unique_name].add_(inc)
         except Exception:
             pass
@@ -682,7 +683,9 @@ class UnifiedMemoryHandler:
                         
                         new_omega = s / denom
                         # Fuse and accumulate
-                        new_omega = torch.nan_to_num(new_omega, nan=0.0, posinf=1e6, neginf=0.0).clamp(min=0.0, max=1e6)
+                        # [V31.16] MIRRORMIND CAUTERIZATION: Absolute Omega Ceiling
+                        # Importance values above 100.0 create numerical gradient walls.
+                        new_omega = torch.nan_to_num(new_omega, nan=0.0, posinf=100.0, neginf=0.0).clamp(min=0.0, max=100.0)
                         existing_omega = self.omega.get(unique_name, torch.zeros_like(p)).to(p.device)
                         self.omega[unique_name] = existing_omega + new_omega
                         

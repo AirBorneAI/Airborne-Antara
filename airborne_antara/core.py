@@ -1067,10 +1067,11 @@ class AdaptiveFramework(nn.Module):
                     if self.training and getattr(self, 'current_modifiers', None) is not None:
                         mods = self.current_modifiers
                         
-                        # [V31.15] MIRRORMIND WARM-UP: Dampen modifiers at task start
-                        # to allow the model to stabilize features before System 2 takes over.
-                        steps_since_start = getattr(self, '_steps_since_task_start', 1000)
-                        warmup_scale = min(1.0, max(0.01, steps_since_start / 200.0))
+                        # [V31.16] STRATEGIC SHIELD: Extended warm-up (0 to 1 over 1000 steps)
+                        # This covers the entire first epoch, ensuring System 2 only 
+                        # takes over once System 1 features have settled.
+                        steps_since_start = getattr(self, '_steps_since_task_start', 2000)
+                        warmup_scale = min(1.0, max(0.01, steps_since_start / 1000.0))
                         
                         if mods.dim() == 1:
                             scale = 1.0 + (mods[0].clamp(-0.4, 0.4) * warmup_scale)
@@ -1378,6 +1379,11 @@ class AdaptiveFramework(nn.Module):
                 else:
                     logits = output
                     features = None
+
+                # [V31.16] LOGIT FIREBREAK: Prevent astronomical CrossEntropy loss
+                # Clamping to [-50, 50] keeps exp(logits) in a range that doesn't 
+                # instantly explode the task loss.
+                logits = torch.clamp(logits, -50.0, 50.0)
 
                 # [V8.0] Consciousness Observation (System 2)
                 consciousness_metrics = {}
