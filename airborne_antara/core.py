@@ -760,26 +760,10 @@ class AdaptiveFramework(nn.Module):
             for i in range(1, getattr(self.model, 'num_experts', 1)):
                 self.model.distill_expert(source_idx=0, target_idx=i, noise_scale=0.01)
 
-        # [V31.12] PRE-CONSOLIDATION ZEROING:
-        # We must zero out non-owner expert heads BEFORE consolidation 
-        # so that the 'Anchor' captured by memory is exactly 0.0.
-        if hasattr(self.model, 'named_modules'):
-            cpt = self.config.classes_per_task
-            n_exp = getattr(self.model, 'num_experts', 8)
-            with torch.no_grad():
-                for m_name, module in self.model.named_modules():
-                    if "fc" in m_name.lower() and hasattr(module, 'weight'):
-                        e_idx = -1
-                        if "experts." in m_name:
-                            try: e_idx = int(m_name.split("experts.")[1].split(".")[0])
-                            except: pass
-                        
-                        if e_idx != -1 and e_idx != (task_id % n_exp):
-                            # This expert does NOT own this task. Zero its head for this task.
-                            s, e = task_id * cpt, (task_id + 1) * cpt
-                            module.weight.data[s:e, :] = 0.0
-                            if hasattr(module, 'bias') and module.bias is not None:
-                                module.bias.data[s:e] = 0.0
+        # [V32] PRE-CONSOLIDATION ZEROING: DISABLED
+        # Zeroing non-owner expert heads creates gradient dead zones.
+        # With task-local CE, non-owner experts naturally produce low confidence.
+        # The sacred mask + Iron Mind gradient shunts are sufficient protection.
 
         # 1. Consolidate Memory (EWC/SI)
         # Now captures the correct state: Expert 0 has Task 0 weights, others have 0.0.
@@ -809,41 +793,18 @@ class AdaptiveFramework(nn.Module):
                 # Capture the LAST seen features of Task 0 as the 'Sacred Anchor'
                 self.perception.holographic_anchor = self._last_latent.detach().cpu()
         
-        # 3. Entropy-Driven Expert Sharpening (Temperature Decay)
-        if getattr(self.config, 'use_moe', False):
-            # [V31.7] Progressive Sharpening: Decay temperature by 15% per task.
-            base_temp = getattr(self.config, 'moe_temperature', 1.0)
-            new_temp = base_temp * (0.85 ** (task_id + 1))
-            
-            # Clamp temp to prevent numerical instability. 
-            # [V31.7] Floor-cap at 0.5 to preserve multi-task routing diversity.
-            new_temp = max(new_temp, 0.5) 
-            if hasattr(self.model, 'set_temperature'):
-                self.model.set_temperature(new_temp)
-            self.logger.info(f"🔥 MoE Sharpening: Temperature adjusted to {new_temp:.4f}")
+        # [V32] MoE Temperature Sharpening: DISABLED
+        # Aggressive temperature decay was reducing routing diversity.
+        # Let the router learn naturally; temperature stays at initialization value.
 
         # [V31.8] ETERNAL MIND: Neural Resurrection (Cleanup & Re-allocation)
         # After Task 0, we prune 10% of the LEAST important weights.
         # This creates 'Neural Room' for Task 1 without affecting Task 0 accuracy.
-        if task_id == 0:
-            self.logger.info("🧹 Performing Neural Resurrection cleanup...")
-            for name, p in self.model.named_parameters():
-                unique_name = f"m0_{name}"
-                if unique_name in self.memory.omega:
-                    omega = self.memory.omega[unique_name]
-                    if omega.numel() > 10:
-                        # [V9.5] Stable Pruning: Use Top-K instead of Quantile
-                        # to ensure exactly 10% is pruned even with many zero values.
-                        k = max(1, int(0.10 * omega.numel()))
-                        _, indices = torch.topk(omega.float().view(-1), k, largest=False)
-                        prune_mask = torch.zeros_like(omega, dtype=torch.bool)
-                        prune_mask.view(-1)[indices] = True
-                        
-                        # 1. Zero the pruned weights to create a clean slate
-                        p.data[prune_mask] = 0.0
-                        # 2. Resurrect: Remove from sacred mask so subsequent tasks can own them
-                        if unique_name in self.memory.sacred_mask:
-                            self.memory.sacred_mask[unique_name][prune_mask] = False
+        # [V32] Neural Resurrection: DISABLED
+        # Pruning 10% of Task 0 weights was destroying the features the model just learned.
+        # With task-local CE and Iron Mind, weight recycling is unnecessary.
+        if False:  # Preserved for future ablation
+            pass
 
         # [V31.8] STRATEGIC MODE: Teacher Snapshot
         # Store a copy of the model as a teacher for self-distillation during dreaming.
@@ -1404,17 +1365,24 @@ class AdaptiveFramework(nn.Module):
                 if target_data.dtype in [torch.float16, torch.float32, torch.float64] or logits.shape == target_data.shape:
                     loss = F.mse_loss(logits, target_data)
                 else:
-                    # Task-local slicing was causing 0% accuracy on previous tasks
-                    # by zeroing gradient signal to old class neurons.
+                    # [V32] TASK-LOCAL CROSS-ENTROPY: Restrict softmax to current task's classes.
+                    # Computing softmax over all 100 classes forces the backbone to suppress
+                    # frozen old-class logits, which destroys features for previous tasks.
+                    # Task-local CE eliminates this representation scrambling.
+                    cpt = self.config.classes_per_task
+                    t_start = task_id * cpt
+                    t_end = (task_id + 1) * cpt
+                    task_logits = logits[:, t_start:t_end]
+                    task_labels = target_data.view(-1) - t_start
+                    # Clamp labels to valid range (safety for any label noise)
+                    task_labels = task_labels.clamp(0, cpt - 1)
                     
-                    # [V31.8] STRATEGIC MODE: Dynamic Label Smoothing (Cognitive Damping)
-                    # We use surprise to damp the learning signal.
                     smoothing = 0.0
                     if 'surprise' in consciousness_metrics:
                         s_val = float(consciousness_metrics['surprise'])
                         smoothing = max(0.0, min(0.2, s_val * 0.05))
-                        
-                    loss = F.cross_entropy(logits, target_data.view(-1), label_smoothing=smoothing)
+                    
+                    loss = F.cross_entropy(task_logits, task_labels, label_smoothing=smoothing)
                 
                 # 4. Memory Regularization
                 reg_loss = torch.tensor(0.0, device=self.device)
@@ -2087,6 +2055,11 @@ class AdaptiveFramework(nn.Module):
                 prediction = outputs[0]
             else:
                 prediction = outputs
+            
+            # [V32] INFERENCE LOGIT CLAMP: Prevent astronomical logits from dominating argmax.
+            # The train_step clamp at [-50, 50] was not covering the inference path,
+            # allowing unclamped logits (observed: 5,289,401) to corrupt evaluation.
+            prediction = torch.clamp(prediction, -50.0, 50.0)
                 
             # 2. [V27] Zero-Leakage Prediction (Global head by default)
             # [V31.7] Class-IL Enforcement: We use the full head.
@@ -2406,12 +2379,18 @@ class AdaptiveFramework(nn.Module):
         
         try:
             aligned_count = 0
-            for module in self.model.modules():
+            cpt = self.config.classes_per_task
+            expected_out = cpt * 10  # Expected classifier output size (e.g. 100 for CIFAR100)
+            
+            for name, module in self.model.named_modules():
                 if not isinstance(module, nn.Linear): continue
                 
-                # Check if this linear layer is likely a task-partitioned classifier
-                # (Output dim should be divisible by classes_per_task)
-                cpt = self.config.classes_per_task
+                # [V32] RESTRICTED WA: Only align actual classifier heads (fc layers),
+                # not intermediate projections in MoE gates, attention, etc.
+                # Classifier heads have output dim == num_classes and name contains 'fc'
+                is_classifier = ('fc' in name.lower() and module.out_features >= expected_out)
+                if not is_classifier: continue
+                
                 total_classes = module.out_features
                 if total_classes < (task_id + 1) * cpt: continue
                 
