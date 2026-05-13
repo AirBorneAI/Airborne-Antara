@@ -159,7 +159,21 @@ class KnowledgeGovernor:
                         # Identify which expert this is (if any)
                         e_idx = -1
                         if "experts." in m_name:
-                            try: e_idx = int(m_name.split("experts.")[1].split(".")[0])
+                            try:
+                                ex_idx = int(m_name.split("experts.")[1].split(".")[0])
+                                if "domains." in m_name:
+                                    d_idx = int(m_name.split("domains.")[1].split(".")[0])
+                                    # Need to find experts_per_domain to compute global index.
+                                    # We can find max ex_idx across the model.
+                                    max_ex = 0
+                                    for m_inf in memory_module.models:
+                                        for n_inf, _ in m_inf.named_modules():
+                                            if "experts." in n_inf:
+                                                try: max_ex = max(max_ex, int(n_inf.split("experts.")[1].split(".")[0]))
+                                                except: pass
+                                    e_idx = d_idx * (max_ex + 1) + ex_idx
+                                else:
+                                    e_idx = ex_idx
                             except: pass
                         
                         # [V31.8] Dynamically determine expert count
@@ -167,7 +181,15 @@ class KnowledgeGovernor:
                         for m_inf in memory_module.models:
                             for n_inf, _ in m_inf.named_modules():
                                 if "experts." in n_inf:
-                                    try: expert_indices.add(int(n_inf.split("experts.")[1].split(".")[0]))
+                                    try:
+                                        tmp_ex = int(n_inf.split("experts.")[1].split(".")[0])
+                                        if "domains." in n_inf:
+                                            tmp_d = int(n_inf.split("domains.")[1].split(".")[0])
+                                            # Assuming we already have max_ex from above, but we can just recount:
+                                            # We just need total number of unique experts.
+                                            expert_indices.add(f"{tmp_d}_{tmp_ex}")
+                                        else:
+                                            expert_indices.add(str(tmp_ex))
                                     except: continue
                         n_exp = len(expert_indices) if expert_indices else 8
                             
@@ -182,15 +204,14 @@ class KnowledgeGovernor:
                             is_owner = (e_idx == -1) or (e_idx == (t % n_exp))
                             
                             if is_owner:
-                                # Standard lock
+                                # Standard lock — preserve trained weights
                                 cumulative[p_w_id][s:e, :] = True
                             else:
-                                # Anti-Interference Lock: Force to zero and freeze
+                                # Non-owners must ZERO untrained rows to prevent random weights
+                                # from producing massive arbitrary logits during global Class-IL argmax.
                                 with torch.no_grad():
-                                    p_w.data[s:e, :] = 0.0
-                                    if hasattr(module, 'bias') and module.bias is not None:
-                                        module.bias.data[s:e] = 0.0
-                                cumulative[p_w_id][s:e, :] = True
+                                    p_w[s:e, :] = 0.0
+                                    cumulative[p_w_id][s:e, :] = True # Lock them at zero!
                                 
                         if hasattr(module, 'bias') and module.bias is not None:
                             p_b = module.bias
@@ -199,7 +220,14 @@ class KnowledgeGovernor:
                                 cumulative[p_b_id] = torch.zeros(p_b.shape, dtype=torch.bool, device=p_b.device)
                             for t in range(task_id + 1):
                                 s, e = t * cpt, min((t + 1) * cpt, num_classes)
-                                cumulative[p_b_id][s:e] = True
+                                if s >= e: continue
+                                is_owner = (e_idx == -1) or (e_idx == (t % n_exp))
+                                if is_owner:
+                                    cumulative[p_b_id][s:e] = True
+                                else:
+                                    with torch.no_grad():
+                                        p_b[s:e] = 0.0
+                                        cumulative[p_b_id][s:e] = True
                     
                     # Logic for Gate rows (Task-Specific Experts)
                     elif "gate" in m_name.lower():
@@ -297,12 +325,9 @@ class KnowledgeGovernor:
         
         # [V31.7] Bug #8 Fix: Enforce Quota Ceiling (Emergency Pruning)
         if memory_module.saturation_level > self.quota:
-            # [V31.15] MIRRORMIND PROTECTION: Ratio must be safe against zero saturation
-            sat_lvl = max(memory_module.saturation_level, 1e-6)
-            ratio = self.quota / sat_lvl
-            # If saturation is below quota, no pruning needed (ratio > 1.0)
-            if ratio >= 1.0: return
-            
+            self.logger.warning(f"[IRON MIND] Saturation ({memory_module.saturation_level:.2%}) exceeds quota ({self.quota:.2%}). Pruning mask...")
+            # Proportional pruning of masks to fit within quota
+            ratio = self.quota / memory_module.saturation_level
             for pid, mask in cumulative.items():
                 # Protect small critical layers (FC heads, Gates) and ALL Batch Normalization from random pruning
                 # [V31.8] Hard-Locks are also exempt.
@@ -318,18 +343,13 @@ class KnowledgeGovernor:
                 is_critical = is_bn or is_fc or is_gate
 
 
-                # [V31.15] TITANIUM FOUNDATION PROTECTION:
-                # Task 0 is the universal foundation. We NEVER prune it.
-                # If the quota is exceeded, we must prune newer, less foundational tasks instead.
+                # [V31.15] TITANIUM PROTECTION: Robust Foundation Exemption
+                # Task 0 knowledge is SACRED and must never be pruned.
                 is_task0_sacred = False
-                if 0 in memory_module.task_omega_snapshots:
-                    # Check if this parameter was snapshotted in Task 0
-                    if pid in memory_module.task_omega_snapshots[0]:
+                for name in names:
+                    if "task0" in name.lower() or "snapshot" in name.lower():
                         is_task0_sacred = True
-                
-                # Check for explicit task0 naming in modules
-                if "task0" in p_name:
-                    is_task0_sacred = True
+                        break
 
                 if mask.numel() > 512 and not is_critical and not is_task0_sacred: 
                     # [V31.11] TITANIUM PRUNING: Importance-Aware Quota Enforcement

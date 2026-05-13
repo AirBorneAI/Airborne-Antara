@@ -1056,10 +1056,8 @@ class UnifiedMemoryHandler:
             loss += ewc_loss * (self.ewc_lambda * lamb)
 
         # [V31.15] MIRRORMIND PROTECTION: Absolute Penalty Ceiling
-        # If importance metrics explode (Numerical Plague), this prevents 
-        # the loss from destroying the model weights.
-        loss = torch.nan_to_num(loss, nan=0.0, posinf=500.0)
-        loss = torch.clamp(loss, max=500.0)
+        # Prevent completely infinite loss, but allow gradients to flow.
+        loss = torch.nan_to_num(loss, nan=0.0, posinf=10000.0)
         
         return loss
 

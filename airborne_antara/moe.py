@@ -47,9 +47,10 @@ class AdaptiveExpertBlock(nn.Module):
         mod = self.modulation(x_flat)
         scale, shift = torch.chunk(mod, 2, dim=-1)
         
-        # [V31.7] Bounded Scale & Shift: Prevent Expert Modulation explosion (The Shunt)
-        scale = torch.tanh(scale) * 0.4 # Bound scale to [-0.4, 0.4]
-        shift = torch.tanh(shift) * 1.0 # Bound shift to [-1.0, 1.0]
+        # [V31.15] MIRRORMIND SANITIZATION: Bound Scale & Shift (The Shunt)
+        # Prevents unconstrained modulation from exploding logits at task start.
+        scale = torch.tanh(scale) * 2.0 # Bound scale to [-2.0, 2.0]
+        shift = torch.tanh(shift) * 5.0 # Bound shift to [-5.0, 5.0]
         
         # 2. Reshape for broadcasting
         view_shape = [x.size(0)] + [1] * (x.dim() - 1)
@@ -117,11 +118,7 @@ class GatingNetwork(nn.Module):
             cons_bias = self.cons_proj(consciousness_state.to(x.device))
             logits = logits + cons_bias
             
-        # [V31.15] MIRRORMIND SHARPENING:
-        # Use a much lower temperature during evaluation to force 1-hot routing.
-        # [V31.15] Hard Floor: Ensure temperature never causes logit overflow.
-        eff_temp = 0.1 if not self.training else max(self.temperature, 0.5)
-        logits = logits / eff_temp
+        logits = logits / max(self.temperature, 1e-8)
         
         # [V27] Autonomous Feature-Based Routing
         # We removed the hard task-id mask to ensure the router learns to 
@@ -330,48 +327,35 @@ class HierarchicalMoE(nn.Module):
             domain.expert_usage.zero_()
     
     def forward(self, x, task_id=None, consciousness_state: Optional[torch.Tensor] = None, internal_mode: bool = False):
-        # [BUGFIX] Task-Agnostic Logit-Based Routing for Zero-Exemplar Class-IL
-        # Bypasses Gating Network Forgetting completely during evaluation.
-        # [V31.12] HYBRID ROUTING: Use Gating Network for initial expert selection, 
-        # but keep logit-based refinement to solve class-overlap.
+        # [V33] FIXED INFERENCE ROUTING: Select top-1 domain, then let SparseMoE
+        # handle expert gating internally. The old code ran ALL experts and summed
+        # their outputs, drowning the correct expert's signal in noise from 7
+        # untrained experts — causing catastrophic accuracy collapse despite
+        # zero FC/BN drift.
         if not self.training and task_id is None:
-            # 1. First, let the Domain Router pick the domain
+            # 1. Domain Router picks the best domain per sample
             domain_weights, domain_indices = self.domain_router(x, task_id=None, consciousness_state=consciousness_state)
+            top_domain = domain_indices[:, 0]  # [batch] — top-1 domain index
             
-            # 2. Collect outputs from all experts
-            all_expert_outputs = []
-            for d_idx, domain in enumerate(self.domains):
-                # Expert gate weights for this domain
-                e_weights, e_indices = domain.gate(x, task_id=None, consciousness_state=consciousness_state)
-                
-                # Weight of this domain relative to others
-                d_w = domain_weights[:, 0].view(-1, 1) # [batch, 1]
-                
-                for i, expert in enumerate(domain.experts):
-                    out = expert(x, task_id=None)
-                    if isinstance(out, tuple): out = out[0]
-                    
-                    # [V9.5] Gated Logits: Weight expert output by its specific gate probability.
-                    # This suppresses noise from experts that the router did not select.
-                    # e_weights is [batch, top_k], e_indices is [batch, top_k]
-                    e_w = torch.zeros(x.size(0), 1, device=x.device)
-                    for k in range(domain.top_k):
-                        mask = (e_indices[:, k] == i)
-                        e_w[mask] = e_weights[mask, k:k+1]
-                    
-                    # [V31.15] MIRRORMIND SOFT-WINNER FILTERING:
-                    # If an expert's combined probability is below 0.05, we zero it out.
-                    # This prevents 'Noise Floor Accumulation' in hierarchical systems.
-                    combined_w = e_w * d_w
-                    combined_w = torch.where(combined_w > 0.05, combined_w, torch.zeros_like(combined_w))
-                    
-                    weighted_out = out * combined_w
-                    all_expert_outputs.append(weighted_out.unsqueeze(1))
+            batch_size = x.size(0)
+            final_output = None
             
-            all_expert_outputs = torch.cat(all_expert_outputs, dim=1)
-            # [V9.5] Final output is the weighted sum of all experts.
-            # This is mathematically stable and eliminates logit interference.
-            final_output = all_expert_outputs.sum(dim=1)
+            for d_idx in range(self.num_domains):
+                mask = (top_domain == d_idx)
+                if not mask.any():
+                    continue
+                batch_idx = torch.where(mask)[0]
+                selected = x[batch_idx]
+                
+                # 2. SparseMoE handles top-k expert gating internally
+                domain_out, _ = self.domains[d_idx](selected, task_id=None, consciousness_state=consciousness_state)
+                
+                if final_output is None:
+                    out_shape = list(domain_out.shape)
+                    out_shape[0] = batch_size
+                    final_output = torch.zeros(out_shape, device=x.device, dtype=domain_out.dtype)
+                
+                final_output[batch_idx] = domain_out
             
             return final_output, domain_indices
 
@@ -382,6 +366,15 @@ class HierarchicalMoE(nn.Module):
             domain_indices = torch.full((x.size(0), self.top_k), target_domain, dtype=torch.long, device=x.device)
             domain_weights = torch.zeros((x.size(0), self.top_k), device=x.device)
             domain_weights[:, 0] = 1.0
+            
+            # [V33.1] SUPERVISED DOMAIN GATE TRAINING:
+            # Must train domain_router so it knows where to send features during eval!
+            domain_out_weights, domain_out_indices = self.domain_router(x, task_id=task_id, consciousness_state=consciousness_state)
+            if hasattr(self.domain_router, 'gate'):
+                gate_logits = self.domain_router.gate(x.view(x.size(0), -1) if x.dim() > 2 else x)
+                target_labels = torch.full((x.size(0),), target_domain, dtype=torch.long, device=x.device)
+                routing_loss = F.cross_entropy(gate_logits, target_labels)
+                self.domain_router.aux_loss = getattr(self.domain_router, 'aux_loss', 0.0) + routing_loss * 0.1
         else:
             domain_weights, domain_indices = self.domain_router(x, task_id=task_id, consciousness_state=consciousness_state)
             

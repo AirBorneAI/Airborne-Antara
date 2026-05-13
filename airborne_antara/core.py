@@ -753,12 +753,12 @@ class AdaptiveFramework(nn.Module):
         # [V31.8] Weight Alignment (WA): Eliminate Recency Bias BEFORE Anchoring
         self._apply_internal_wa(task_id)
         
-        # [V31.8] STRATEGIC MODE: Task-Informed Initialization
-        # Distill FIRST so that we can zero out the heads of the new copies.
-        if task_id == 0 and hasattr(self.model, 'distill_expert'):
-            self.logger.info("🧪 Distilling Task 0 knowledge to new experts...")
-            for i in range(1, getattr(self.model, 'num_experts', 1)):
-                self.model.distill_expert(source_idx=0, target_idx=i, noise_scale=0.01)
+        # [V33] Expert Distillation DISABLED: Copying Task 0 features to other
+        # experts causes inter-expert feature interference. Each expert should
+        # learn its own representations independently from random init.
+        # if task_id == 0 and hasattr(self.model, 'distill_expert'):
+        #     for i in range(1, getattr(self.model, 'num_experts', 1)):
+        #         self.model.distill_expert(source_idx=0, target_idx=i, noise_scale=0.01)
 
         # [V32] PRE-CONSOLIDATION ZEROING: DISABLED
         # Zeroing non-owner expert heads creates gradient dead zones.
@@ -782,8 +782,6 @@ class AdaptiveFramework(nn.Module):
             self._rebuild_restoration_cache()
             self.apply_cas_protection()
             self._sanitize_optimizer_state()
-            # [V31.18] Cleanup transient buffers to free VRAM for next task
-            self.clear_cognitive_buffers()
 
         # [V31.8] STRATEGIC MODE: Holographic Anchor Lockdown
         # If this is Task 0, we capture a snapshot of the perception latent space
@@ -979,13 +977,13 @@ class AdaptiveFramework(nn.Module):
             self.config.meta_learning_rate = base_meta_lr * 1.5
             self.config.novelty_threshold = 1.0 
         elif self.regime == CognitiveRegime.TRANSFER:
-            self.config.si_lambda = base_si * 2.0
+            self.config.si_lambda = base_si * 1.5
             self.config.novelty_threshold = 2.0
         elif self.regime == CognitiveRegime.CONTINUOUS:
-            self.config.si_lambda = base_si * 5.0
+            self.config.si_lambda = base_si * 2.0
             self.config.novelty_threshold = 4.0
         elif self.regime == CognitiveRegime.GHOST:
-            self.config.si_lambda = base_si * 10.0
+            self.config.si_lambda = base_si * 3.0
             self.config.novelty_threshold = 0.5
 
     def _clear_all_hooks(self):
@@ -1023,9 +1021,10 @@ class AdaptiveFramework(nn.Module):
                         if adapted is not inp:
                             inp = adapted
 
-                    # [BUGFIX] Apply Sentient Affine Modifiers ONLY during training 
-                    # to prevent Task 1 leakage from suppressing Task 0 during evaluation
-                    if self.training and getattr(self, 'current_modifiers', None) is not None:
+                    # [V31.15] MIRRORMIND SENTIENCE RESTORATION: Restore missing 'mods' variable.
+                    # Apply Sentient Affine Modifiers during both training and evaluation 
+                    # to prevent representation shift during test-time.
+                    if getattr(self, 'current_modifiers', None) is not None:
                         mods = self.current_modifiers
                         
                         # [V31.16] STRATEGIC SHIELD: Extended warm-up (0 to 1 over 1000 steps)
@@ -1053,6 +1052,8 @@ class AdaptiveFramework(nn.Module):
                                 m = mods.mean(dim=0)
                                 scale = 1.0 + (m[0].clamp(-0.4, 0.4) * warmup_scale)
                                 shift = m[1].clamp(-1.0, 1.0) * warmup_scale
+                        
+                        # Apply transformation
                         inp = inp * scale + shift
                     
                     if inp is not output:
@@ -1103,9 +1104,7 @@ class AdaptiveFramework(nn.Module):
         
         try:
             # Aggregate Telemetry
-            # [V31.15] MIRRORMIND SANITIZATION: nan_to_num before mean to prevent 
-            # numerical plague from single corrupted steps.
-            global_state = torch.nan_to_num(self.telemetry_buffer, nan=0.0).mean(dim=0)
+            global_state = self.telemetry_buffer.mean(dim=0)
             global_state = torch.nan_to_num(global_state, nan=0.0)
             
             # Introspection Step
@@ -1117,6 +1116,8 @@ class AdaptiveFramework(nn.Module):
             elif self.training:
                 # Standard training flow
                 log_var, action, log_prob = self.introspection_engine(global_state)
+                # [V31.15] TITANIUM PROTECTION: Absolute Action Ceiling
+                action = torch.nan_to_num(action, nan=0.0).clamp(-2.0, 2.0)
                 # [V15.2 IRON CLAD] Only record log-probs during "Real" training.
                 # If we are in internal consolidation (dreaming/replay), we skip 
                 # meta-prob collection to prevent graph leakage across steps.
@@ -1162,10 +1163,6 @@ class AdaptiveFramework(nn.Module):
         self._current_wm_inputs = None
         self._last_latent = None
         
-        # [V31.15] Telemetry Purge: Clear old features to prevent cross-step leakage
-        if hasattr(self, 'telemetry_buffer'):
-            self.telemetry_buffer.data.zero_()
-        
         # Clear auxiliary losses in MoE
         if hasattr(self.model, 'zero_grad'):
             self.model.zero_grad(set_to_none=True)
@@ -1195,17 +1192,10 @@ class AdaptiveFramework(nn.Module):
         """[V8.3] Explicitly clear all meta-learning and consciousness buffers."""
         self.meta_log_probs.clear()
         self.current_modifiers = None
-        
-        # [V31.15] MIRRORMIND FLUSH: Purge telemetry to prevent Task-Lag explosion
-        if hasattr(self, 'telemetry_buffer'):
-            self.telemetry_buffer.data.zero_()
-            
         if self.consciousness:
             self.consciousness.current_thought_trace.clear()
-            # Clear running stats in consciousness if any
-            if hasattr(self.consciousness, 'thought_stream'):
-                self.consciousness.thought_stream.clear()
-        
+            # We don't clear the thought_stream as it's a deque for long-term stats,
+            # but we could clear it if memory pressure is critical.
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
@@ -1278,18 +1268,12 @@ class AdaptiveFramework(nn.Module):
                 self.logger.info(f"[WARRIOR] New Task Detected: {task_id}. Purging Optimizer Momentum...")
                 self._sanitize_optimizer_state()
                 
-                # [V31.15] MIRRORMIND TRANSITION: Flush telemetry and modifiers
-                self.clear_cognitive_buffers()
-                
-                # [V31.15] MIRRORMIND TRANSITION: 
-                # Also reset introspection engine state if it exists, as Task 0's 
-                # modifiers are likely invalid for Task 1.
-                if hasattr(self, 'introspection_engine') and self.introspection_engine:
-                    self.logger.info("[WARRIOR] Resetting Introspection Engine for task transition.")
-                    with torch.no_grad():
-                        for p in self.introspection_engine.parameters():
-                            if p in self.optimizer.state:
-                                self.optimizer.state[p] = {} # Total Purge
+                # [V31.15] MIRRORMIND SANITIZATION: Flush Cognitive Buffers
+                # Prevents stale Task 0 telemetry from triggering logit explosions in Task 1.
+                if hasattr(self, 'telemetry_buffer') and self.telemetry_buffer is not None:
+                    self.telemetry_buffer.zero_()
+                if hasattr(self, 'current_modifiers'):
+                    self.current_modifiers = None
                 
                 self._prev_train_task_id = task_id
                 self._steps_since_task_start = 0
@@ -1341,10 +1325,10 @@ class AdaptiveFramework(nn.Module):
                     logits = output
                     features = None
 
-                # [V31.16] LOGIT FIREBREAK: Prevent astronomical CrossEntropy loss
-                # Clamping to [-50, 50] keeps exp(logits) in a range that doesn't 
-                # instantly explode the task loss.
-                logits = torch.clamp(logits, -50.0, 50.0)
+                # [V33] LOGIT FIREBREAK: Tighter clamp at [-10, 10].
+                # exp(10)≈22026 vs exp(50)≈5.18e21 — the old range created
+                # effectively infinite softmax confidence from non-owner experts.
+                logits = torch.clamp(logits, -10.0, 10.0)
 
                 # [V8.0] Consciousness Observation (System 2)
                 consciousness_metrics = {}
@@ -1425,7 +1409,7 @@ class AdaptiveFramework(nn.Module):
 
                 # [V31.8] STRATEGIC MODE: Surgical Weight Decay (The Shunt)
                 # We apply extra decay to non-sacred weights to force neuron recycling.
-                surgical_wd = self._compute_surgical_weight_decay(wd_rate=1e-4)
+                surgical_wd = self._compute_surgical_weight_decay(wd_rate=1e-6)
 
                 # Aggregation logic inside autocast
                 total_loss = loss + reg_loss + aux_loss + (wm_loss * 0.5) + surgical_wd
@@ -1708,9 +1692,6 @@ class AdaptiveFramework(nn.Module):
                         batch_args.append(torch.cat(arg_tensors, dim=0))
                     
                     batch_targets = torch.cat([s.target.to(self.device) for s in samples], dim=0)
-                    
-                    # [V31.18] Fix Missing Variable: Extract task IDs from samples
-                    sample_task_ids = [s.task_id for s in samples]
 
                 except Exception as e:
                     print(f"DEBUG: Dream Batch Failed: {e}")
@@ -1861,7 +1842,7 @@ class AdaptiveFramework(nn.Module):
         finally:
             self._internal_consolidation_mode = False
 
-    def learn_from_episodic_memory(self, current_surprise: float, current_loss: float, current_features: Optional[torch.Tensor] = None, k: int = 5, task_id: Optional[int] = None):
+    def learn_from_episodic_memory(self, current_surprise: float, current_loss: float, current_features: Optional[torch.Tensor] = None, k: int = 5):
         """
         Replay specific, relevant episodes from consciousness.
         """
@@ -1967,6 +1948,19 @@ class AdaptiveFramework(nn.Module):
             self._internal_consolidation_mode = False
 
         
+        # 2. Update Sacred Mask (The Hard-Lock)
+        if self.governor:
+            self.governor.update_sacred_mask(self.memory, task_id, self.model)
+            
+        # 3. Enforce Protection (Gradient Shunting)
+        self.apply_cas_protection()
+        
+        # 4. Rebuild Restoration Cache (Post-Optimizer Recovery)
+        self._rebuild_restoration_cache()
+        
+        # 5. Clear transient buffers to free VRAM for next task
+        self.clear_cognitive_buffers()
+        self.logger.info(f"[ANTARA] Task {task_id} Knowledge Anchored. Iron Mind Active.")
 
     def consolidate_memory(self, **kwargs):
         """Wrapper for Unified Memory consolidation (Backward Compatibility)."""
@@ -2056,10 +2050,9 @@ class AdaptiveFramework(nn.Module):
             else:
                 prediction = outputs
             
-            # [V32] INFERENCE LOGIT CLAMP: Prevent astronomical logits from dominating argmax.
-            # The train_step clamp at [-50, 50] was not covering the inference path,
-            # allowing unclamped logits (observed: 5,289,401) to corrupt evaluation.
-            prediction = torch.clamp(prediction, -50.0, 50.0)
+            # [V33] INFERENCE LOGIT CLAMP: Tighter clamp at [-10, 10].
+            # Must match train_step clamp to prevent distribution mismatch.
+            prediction = torch.clamp(prediction, -10.0, 10.0)
                 
             # 2. [V27] Zero-Leakage Prediction (Global head by default)
             # [V31.7] Class-IL Enforcement: We use the full head.
@@ -2361,8 +2354,7 @@ class AdaptiveFramework(nn.Module):
                 # ~mask gives non-sacred coordinates
                 non_sacred_mask = (~mask).to(param.device)
                 if non_sacred_mask.any():
-                    # [V31.18] Fix: Use param (not param.data) to allow gradient flow for surgical WD
-                    total_wd += (param * non_sacred_mask).pow(2).sum() * wd_rate
+                    total_wd += (param.data * non_sacred_mask).pow(2).sum() * wd_rate
             else:
                 # No mask = All weights are fair game for decay
                 total_wd += param.pow(2).sum() * wd_rate
