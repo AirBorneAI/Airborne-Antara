@@ -142,7 +142,26 @@ class KnowledgeGovernor:
 
         # 5. HARD HEAD GOVERNANCE: Classification heads and MoE Gates
         # Classification heads are the 'Identity' of previous tasks.
-        # They must be 100% frozen, or the model will 'forget' how to route and label.
+        # [V33] HIERARCHICAL EXPERT DETECTION:
+        # Collect all unique global expert identifiers (domain_expert)
+        expert_indices = set()
+        for m_inf in memory_module.models:
+            for n_inf, _ in m_inf.named_modules():
+                if "experts." in n_inf:
+                    try:
+                        ex_idx = int(n_inf.split("experts.")[1].split(".")[0])
+                        if "domains." in n_inf:
+                            d_idx = int(n_inf.split("domains.")[1].split(".")[0])
+                            # We need to know max experts per domain to compute global ID.
+                            # For simplicity, we'll use a string key for the set first.
+                            expert_indices.add(f"{d_idx}_{ex_idx}")
+                        else:
+                            expert_indices.add(str(ex_idx))
+                    except: continue
+        
+        # n_exp should be the TOTAL number of unique experts in the whole model.
+        n_exp = len(expert_indices) if expert_indices else 8
+
         for m_idx, m_tracked in enumerate(memory_module.models):
             for m_name, module in m_tracked.named_modules():
                 if hasattr(module, 'weight') and ("fc" in m_name.lower() or "gate" in m_name.lower()):
@@ -176,23 +195,6 @@ class KnowledgeGovernor:
                                     e_idx = ex_idx
                             except: pass
                         
-                        # [V31.8] Dynamically determine expert count
-                        expert_indices = set()
-                        for m_inf in memory_module.models:
-                            for n_inf, _ in m_inf.named_modules():
-                                if "experts." in n_inf:
-                                    try:
-                                        tmp_ex = int(n_inf.split("experts.")[1].split(".")[0])
-                                        if "domains." in n_inf:
-                                            tmp_d = int(n_inf.split("domains.")[1].split(".")[0])
-                                            # Assuming we already have max_ex from above, but we can just recount:
-                                            # We just need total number of unique experts.
-                                            expert_indices.add(f"{tmp_d}_{tmp_ex}")
-                                        else:
-                                            expert_indices.add(str(tmp_ex))
-                                    except: continue
-                        n_exp = len(expert_indices) if expert_indices else 8
-                            
                         # Lock rows for ALL completed tasks
                         for t in range(task_id + 1):
                             s, e = t * cpt, min((t + 1) * cpt, num_classes)
@@ -212,6 +214,15 @@ class KnowledgeGovernor:
                                 with torch.no_grad():
                                     p_w[s:e, :] = 0.0
                                     cumulative[p_w_id][s:e, :] = True # Lock them at zero!
+
+                        # [V33] FUTURE CLASS SUPPRESSION:
+                        # Zero out weights for all classes that haven't been trained yet.
+                        # This prevents random initialization from producing high logits.
+                        future_start = (task_id + 1) * cpt
+                        if future_start < num_classes:
+                            with torch.no_grad():
+                                p_w[future_start:, :] = 0.0
+                                # Note: We do NOT lock them, so they can be trained later.
                                 
                         if hasattr(module, 'bias') and module.bias is not None:
                             p_b = module.bias
@@ -228,20 +239,53 @@ class KnowledgeGovernor:
                                     with torch.no_grad():
                                         p_b[s:e] = 0.0
                                         cumulative[p_b_id][s:e] = True
+                        
+                        # [V33] FUTURE BIAS SUPPRESSION:
+                        # Set bias to -10.0 for all future classes so they are suppressed in argmax.
+                        if hasattr(module, 'bias') and module.bias is not None:
+                            future_start = (task_id + 1) * cpt
+                            if future_start < num_classes:
+                                with torch.no_grad():
+                                    module.bias[future_start:] = -10.0
                     
                     # Logic for Gate rows (Task-Specific Experts)
                     elif "gate" in m_name.lower():
                         # [V31.12] Router Plasticity: We lock old expert slots
                         # but keep current slots open for adaptation.
-                        num_experts = p_w.shape[0]
+                        num_rows = p_w.shape[0]
+                        is_domain_router = "domain_router" in m_name.lower()
+                        is_expert_router = "expert_router" in m_name.lower()
+                        
+                        # Extract domain ID for Hierarchical MoE
+                        domain_id = -1
+                        if is_expert_router:
+                            import re
+                            match = re.search(r'domains\.(\d+)', m_name)
+                            if match:
+                                domain_id = int(match.group(1))
+
                         for t in range(task_id): # Lock up to PREVIOUS task
-                            target_expert = t % num_experts
-                            cumulative[p_w_id][target_expert, :] = True
-                            if hasattr(module, 'bias') and module.bias is not None:
-                                p_b_id = id(module.bias)
-                                if p_b_id not in cumulative:
-                                    cumulative[p_b_id] = torch.zeros(module.bias.shape, dtype=torch.bool, device=module.bias.device)
-                                cumulative[p_b_id][target_expert] = True
+                            if is_domain_router:
+                                # [V33] DOMAIN PLASTICITY: We never lock the domain router.
+                                # Multiple tasks (e.g. 0-3) share the same domain row.
+                                # Locking it after Task 0 prevents it from adapting to Task 1.
+                                target_row = -1
+                            elif is_expert_router:
+                                # num_rows = experts_per_domain
+                                domain_for_t = (t % n_exp) // num_rows
+                                if domain_id == -1 or domain_id == domain_for_t:
+                                    target_row = (t % n_exp) % num_rows
+                            else:
+                                # Standard MoE gate
+                                target_row = t % num_rows
+
+                            if target_row != -1:
+                                cumulative[p_w_id][target_row, :] = True
+                                if hasattr(module, 'bias') and module.bias is not None:
+                                    p_b_id = id(module.bias)
+                                    if p_b_id not in cumulative:
+                                        cumulative[p_b_id] = torch.zeros(module.bias.shape, dtype=torch.bool, device=module.bias.device)
+                                    cumulative[p_b_id][target_row] = True
 
                 # [V31.12] Router Plasticity: Global Gate Lock Removed.
                 # We now rely on the row-wise expert locking in Section 5 above.
@@ -254,24 +298,42 @@ class KnowledgeGovernor:
         # We only lock the foundational features of the experts that were actually TRAINED.
         # This preserves 100% plasticity for future experts.
         
-        # Dynamically determine expert count from naming convention
-        expert_indices = set()
+        target_expert_idx = task_id % n_exp
+        # For hierarchical: find domain and local expert
+        # We'll use a regex-style match for accuracy
+        t_domain = -1
+        t_local = -1
+        
+        # Try to find which domain/expert owns this task_id
+        # In Antara, experts are assigned sequentially across domains.
+        # If domains=2, experts_per_domain=4, then:
+        # Task 0 -> D0, E0
+        # Task 1 -> D0, E1
+        # Task 4 -> D1, E0
+        # We can find the hierarchy from n_exp and number of domains.
+        num_domains = 0
         for m in memory_module.models:
             for name, _ in m.named_modules():
-                if "experts." in name:
-                    try:
-                        idx = int(name.split("experts.")[1].split(".")[0])
-                        expert_indices.add(idx)
-                    except: continue
-        num_experts = len(expert_indices) if expert_indices else 8
-        target_expert_idx = task_id % num_experts
+                if name.startswith("domains.") and "." not in name[8:]:
+                    try: num_domains = max(num_domains, int(name.split(".")[1]) + 1)
+                    except: pass
         
+        if num_domains > 0:
+            exp_per_dom = n_exp // num_domains
+            t_domain = target_expert_idx // exp_per_dom
+            t_local = target_expert_idx % exp_per_dom
+        else:
+            t_local = target_expert_idx
+            
         if task_id >= 0:
             for m_idx, m in enumerate(memory_module.models):
                 for name, module in m.named_modules():
                     # Identify early backbone layers (ResNet-style)
                     # Example name: domains.0.experts.0.model.conv1
-                    is_this_expert = f"experts.{target_expert_idx}" in name
+                    if t_domain >= 0:
+                        is_this_expert = f"domains.{t_domain}.experts.{t_local}" in name
+                    else:
+                        is_this_expert = f"experts.{t_local}" in name
                     
                     if is_this_expert:
                         is_early = any(x in name.lower() for x in ['conv1', 'bn1'])
