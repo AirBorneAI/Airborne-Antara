@@ -247,7 +247,7 @@ class SparseMoE(nn.Module):
                 gate_logits = self.gate.gate(x.view(x.size(0), -1) if x.dim() > 2 else x)
                 target_labels = torch.full((x.size(0),), target_expert, dtype=torch.long, device=x.device)
                 routing_loss = F.cross_entropy(gate_logits, target_labels)
-                self.gate.aux_loss = getattr(self.gate, 'aux_loss', 0.0) + routing_loss * 0.1
+                self.gate.aux_loss = getattr(self.gate, 'aux_loss', 0.0) + routing_loss * 1.0
         else:
             weights, indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
         
@@ -374,7 +374,7 @@ class HierarchicalMoE(nn.Module):
                 gate_logits = self.domain_router.gate(x.view(x.size(0), -1) if x.dim() > 2 else x)
                 target_labels = torch.full((x.size(0),), target_domain, dtype=torch.long, device=x.device)
                 routing_loss = F.cross_entropy(gate_logits, target_labels)
-                self.domain_router.aux_loss = getattr(self.domain_router, 'aux_loss', 0.0) + routing_loss * 0.1
+                self.domain_router.aux_loss = getattr(self.domain_router, 'aux_loss', 0.0) + routing_loss * 1.0
         else:
             domain_weights, domain_indices = self.domain_router(x, task_id=task_id, consciousness_state=consciousness_state)
             

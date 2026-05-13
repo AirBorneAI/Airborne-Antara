@@ -264,7 +264,7 @@ class KnowledgeGovernor:
                             if match:
                                 domain_id = int(match.group(1))
 
-                        for t in range(task_id): # Lock up to PREVIOUS task
+                        for t in range(task_id + 1): # Lock completed tasks (including current)
                             if is_domain_router:
                                 # [V33] DOMAIN PLASTICITY: We never lock the domain router.
                                 # Multiple tasks (e.g. 0-3) share the same domain row.

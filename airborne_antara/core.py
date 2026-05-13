@@ -1325,10 +1325,8 @@ class AdaptiveFramework(nn.Module):
                     logits = output
                     features = None
 
-                # [V33] LOGIT FIREBREAK: Tighter clamp at [-10, 10].
-                # exp(10)≈22026 vs exp(50)≈5.18e21 — the old range created
-                # effectively infinite softmax confidence from non-owner experts.
-                logits = torch.clamp(logits, -10.0, 10.0)
+                # [V33] LOGIT FIREBREAK removed from train_step.
+                # Clamping logits during training kills gradients for zeroed/suppressed classes.
 
                 # [V8.0] Consciousness Observation (System 2)
                 consciousness_metrics = {}
