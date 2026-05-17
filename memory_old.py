@@ -1,5 +1,5 @@
 ﻿"""
-Unified Memory Handler: SOTA Continual Learning (Production V3.3)
+Unified Memory Handler: SOTA Continual Learning (Production V3.3) new file to document the changes and why we made them
 =================================================================
 Combines SI (Synaptic Intelligence), EWC (Elastic Weight Consolidation),
 and OGD (Orthogonal Gradient Descent) for immortal memory.
