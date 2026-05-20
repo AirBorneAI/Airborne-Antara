@@ -76,7 +76,7 @@ agent.train_step(x, y)
 
 **Custom Tuning**:
 ```python
-config = AdaptiveFrameworkConfig(
+config = AdaptiveFrameworkConfig(#we need to change the whole file
     model_dim=512,
     enable_world_model=True,
     world_model_loss_weight=0.5  # Focus 50% on future prediction
