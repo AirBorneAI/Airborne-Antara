@@ -446,6 +446,9 @@ class HierarchicalMoE(nn.Module):
                 out_shape[0] = batch_size
                 final_output = torch.zeros(out_shape, device=x.device, dtype=domain_out.dtype)
             
+            # [DIAGNOSTIC PROBE] Check if the model is producing massive logits
+            print(f"[CORTEX ALERT] domain_out (Expert {i}) MIN: {domain_out.min().item():.4f} MAX: {domain_out.max().item():.4f}")
+
             w = domain_weights[batch_idx, 0].view(len(batch_idx), *([1] * (domain_out.dim() - 1)))
             # [V31.8] ETERNAL MIND: Ensure type alignment for index_add (Critical for AMP)
             contribution = (domain_out * w).to(final_output.dtype)

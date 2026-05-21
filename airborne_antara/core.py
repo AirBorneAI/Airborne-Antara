@@ -1124,6 +1124,8 @@ class AdaptiveFramework(nn.Module):
                 if log_prob is not None and not self._internal_consolidation_mode:
                     self.meta_log_probs.append(log_prob)
                 self.current_modifiers = action.detach().squeeze() # [V17] CRITICAL: Detach to break step-to-step graph link
+                if self.current_modifiers is not None and getattr(self, '_steps_since_task_start', 0) < 5:
+                    print(f"[CORTEX ALERT] Introspection Modifiers MIN: {self.current_modifiers.min().item():.4f} MAX: {self.current_modifiers.max().item():.4f}")
                 affine_modifiers = action.detach()
             else:
                 # Standard inference/evaluation flow (Preserves Sentience)
@@ -1411,6 +1413,16 @@ class AdaptiveFramework(nn.Module):
 
                 # Aggregation logic inside autocast
                 total_loss = loss + reg_loss + aux_loss + (wm_loss * 0.5) + surgical_wd
+                
+                if total_loss.item() > 10000.0:
+                    print(f"\n[CORTEX ALERT] MASSIVE LOSS DETECTED!")
+                    print(f"  -> Task CE Loss: {loss.item():.4f}")
+                    print(f"  -> Reg Penalty: {reg_loss.item():.4f}")
+                    print(f"  -> Aux Routing: {aux_loss.item():.4f}")
+                    print(f"  -> WM Loss: {wm_loss.item():.4f}")
+                    print(f"  -> Surgical WD: {surgical_wd.item():.4f}")
+                    if hasattr(self.model, "domain_router") and hasattr(self.model.domain_router, "routing_loss"):
+                        print(f"  -> gate_logits max: {self.model.domain_router.gate(self.model.domain_router.feature_extractor(model_inputs[0])).max().item()}")
         
             if total_loss is None:
                 raise RuntimeError("Cortex Critical: total_loss was never computed in train_step")
