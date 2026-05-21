@@ -240,14 +240,11 @@ class KnowledgeGovernor:
                                         p_b[s:e] = 0.0
                                         cumulative[p_b_id][s:e] = True
                         
-                        # [V33] FUTURE BIAS SUPPRESSION:
-                        # Set bias to -10.0 for all future classes so they are suppressed in argmax.
-                        if hasattr(module, 'bias') and module.bias is not None:
-                            future_start = (task_id + 1) * cpt
-                            if future_start < num_classes:
-                                with torch.no_grad():
-                                    module.bias[future_start:] = -10.0
-                    
+                        # FUTURE BIAS SUPPRESSION REMOVED: 
+                        # Modifying nn.Parameter bias permanently to -10.0 causes 
+                        # cross-entropy gradients to explode when those classes later become the active task.
+                        # Suppression is now handled dynamically in core.py.
+
                     # Logic for Gate rows (Task-Specific Experts)
                     elif "gate" in m_name.lower():
                         # [V31.12] Router Plasticity: We lock old expert slots

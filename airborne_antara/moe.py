@@ -320,10 +320,6 @@ class SparseMoE(nn.Module):
             selected_inputs = x[batch_idx]
             expert_out = self.experts[i](selected_inputs, task_id=task_id)
             
-            if x.requires_grad and i == 0:
-                print(f"[CORTEX ALERT DEEP] expert_out (Domain/Expert) MIN: {expert_out.min().item():.4f} MAX: {expert_out.max().item():.4f}")
-                print(f"[CORTEX ALERT DEEP] ContinualResNet FC Bias MIN: {self.experts[i].fc.bias.min().item():.4f}")
-            
             if final_output is None:
                 out_shape = list(expert_out.shape)
                 out_shape[0] = batch_size
@@ -450,9 +446,6 @@ class HierarchicalMoE(nn.Module):
                 out_shape[0] = batch_size
                 final_output = torch.zeros(out_shape, device=x.device, dtype=domain_out.dtype)
             
-            # [DIAGNOSTIC PROBE] Check if the model is producing massive logits
-            print(f"[CORTEX ALERT] domain_out (Expert {i}) MIN: {domain_out.min().item():.4f} MAX: {domain_out.max().item():.4f}")
-
             w = domain_weights[batch_idx, 0].view(len(batch_idx), *([1] * (domain_out.dim() - 1)))
             # [V31.8] ETERNAL MIND: Ensure type alignment for index_add (Critical for AMP)
             contribution = (domain_out * w).to(final_output.dtype)
