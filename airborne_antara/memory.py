@@ -1028,6 +1028,7 @@ class UnifiedMemoryHandler:
 
         # SI Penalty
         if self.method in ['si', 'hybrid']:
+            si_params = 0
             for m_idx, model in enumerate(self.models):
                 for name, p in model.named_parameters():
                     unique_name = f"m{m_idx}_{name}"
@@ -1036,11 +1037,15 @@ class UnifiedMemoryHandler:
                         o_dev = self.omega[unique_name].to(p.device)
                         a_dev = self.anchor[unique_name].to(p.device)
                         loss += (o_dev * (p - a_dev).pow(2)).sum()
+                        si_params += p.numel()
+            # Normalize by total parameter count to prevent loss explosion
+            if si_params > 0:
+                loss = loss / si_params
             loss *= (self.si_lambda * lamb)
-
         # EWC Penalty
         if self.method in ['ewc', 'hybrid']:
             ewc_loss = 0.0
+            ewc_params = 0
             for m_idx, model in enumerate(self.models):
                 for name, p in model.named_parameters():
                     unique_name = f"m{m_idx}_{name}"
@@ -1053,11 +1058,16 @@ class UnifiedMemoryHandler:
                             # [V31.2] Shape Resilience Guard
                             if p.shape == anchor.shape and p.shape == self.fisher_dict[unique_name].shape:
                                 ewc_loss += (self.fisher_dict[unique_name].to(p.device) * (p - anchor).pow(2)).sum()
+                                ewc_params += p.numel()
+            if ewc_params > 0:
+                ewc_loss = ewc_loss / ewc_params
             loss += ewc_loss * (self.ewc_lambda * lamb)
-
         # [V31.15] MIRRORMIND PROTECTION: Absolute Penalty Ceiling
         # Prevent completely infinite loss, but allow gradients to flow.
-        loss = torch.nan_to_num(loss, nan=0.0, posinf=10000.0)
+        if isinstance(loss, torch.Tensor):
+            loss = torch.nan_to_num(loss, nan=0.0, posinf=10000.0)
+            # Absolute ceiling to prevent gradient walls and exponential explosion
+            loss = loss.clamp(max=10000.0)
         
         return loss
 

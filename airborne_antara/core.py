@@ -2339,6 +2339,7 @@ class AdaptiveFramework(nn.Module):
         total_wd = torch.tensor(0.0, device=self.device)
         if not self.memory: return total_wd
         
+        total_params = 0
         for name, param in self.model.named_parameters():
             if not param.requires_grad: continue
             
@@ -2356,6 +2357,10 @@ class AdaptiveFramework(nn.Module):
             else:
                 # No mask = All weights are fair game for decay
                 total_wd += param.pow(2).sum() * wd_rate
+            total_params += param.numel()
+            
+        if total_params > 0:
+            total_wd = total_wd / total_params
                 
         return total_wd
 
