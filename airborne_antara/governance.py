@@ -32,6 +32,9 @@ class KnowledgeGovernor:
                 for name, p in m_tracked.named_parameters():
                     if not p.requires_grad:
                         continue
+                    # [V37] Exclude routing/gating from sacred mask gathering
+                    if any(x in name.lower() for x in ["gate", "router", "moe"]):
+                        continue
                     p_id = id(p)
                     id_to_p[p_id] = (name, p)
                     
@@ -164,125 +167,81 @@ class KnowledgeGovernor:
 
         for m_idx, m_tracked in enumerate(memory_module.models):
             for m_name, module in m_tracked.named_modules():
-                if hasattr(module, 'weight') and ("fc" in m_name.lower() or "gate" in m_name.lower()):
+                # [V37] Exclude gating networks from hard locking to preserve routing plasticity
+                if hasattr(module, 'weight') and "fc" in m_name.lower() and not any(x in m_name.lower() for x in ["gate", "router", "moe"]):
                     p_w = module.weight
                     p_w_id = id(p_w)
                     if p_w_id not in cumulative:
                         cumulative[p_w_id] = torch.zeros(p_w.shape, dtype=torch.bool, device=p_w.device)
                     
                     # Logic for FC rows (Task-Specific Output)
-                    if "fc" in m_name.lower():
-                        num_classes = p_w.shape[0]
-                        cpt = classes_per_task
+                    num_classes = p_w.shape[0]
+                    cpt = classes_per_task
+                    
+                    # Identify which expert this is (if any)
+                    e_idx = -1
+                    if "experts." in m_name:
+                        try:
+                            ex_idx = int(m_name.split("experts.")[1].split(".")[0])
+                            if "domains." in m_name:
+                                d_idx = int(m_name.split("domains.")[1].split(".")[0])
+                                # Need to find experts_per_domain to compute global index.
+                                # We can find max ex_idx across the model.
+                                max_ex = 0
+                                for m_inf in memory_module.models:
+                                    for n_inf, _ in m_inf.named_modules():
+                                        if "experts." in n_inf:
+                                            try: max_ex = max(max_ex, int(n_inf.split("experts.")[1].split(".")[0]))
+                                            except: pass
+                                e_idx = d_idx * (max_ex + 1) + ex_idx
+                            else:
+                                e_idx = ex_idx
+                        except: pass
+                    
+                    # Lock rows for ALL completed tasks
+                    for t in range(task_id + 1):
+                        s, e = t * cpt, min((t + 1) * cpt, num_classes)
+                        if s >= e: continue
                         
-                        # Identify which expert this is (if any)
-                        e_idx = -1
-                        if "experts." in m_name:
-                            try:
-                                ex_idx = int(m_name.split("experts.")[1].split(".")[0])
-                                if "domains." in m_name:
-                                    d_idx = int(m_name.split("domains.")[1].split(".")[0])
-                                    # Need to find experts_per_domain to compute global index.
-                                    # We can find max ex_idx across the model.
-                                    max_ex = 0
-                                    for m_inf in memory_module.models:
-                                        for n_inf, _ in m_inf.named_modules():
-                                            if "experts." in n_inf:
-                                                try: max_ex = max(max_ex, int(n_inf.split("experts.")[1].split(".")[0]))
-                                                except: pass
-                                    e_idx = d_idx * (max_ex + 1) + ex_idx
-                                else:
-                                    e_idx = ex_idx
-                            except: pass
+                        # EXPERT-CLASS AFFINITY:
+                        # 1. If this expert owns the task, lock the trained weights.
+                        # 2. If it does NOT own the task, zero and lock to prevent interference.
+                        is_owner = (e_idx == -1) or (e_idx == (t % n_exp))
                         
-                        # Lock rows for ALL completed tasks
+                        if is_owner:
+                            # Standard lock — preserve trained weights
+                            cumulative[p_w_id][s:e, :] = True
+                        else:
+                            # Non-owners must ZERO untrained rows to prevent random weights
+                            # from producing massive arbitrary logits during global Class-IL argmax.
+                            with torch.no_grad():
+                                p_w[s:e, :] = 0.0
+                                cumulative[p_w_id][s:e, :] = True # Lock them at zero!
+
+                    # [V33] FUTURE CLASS SUPPRESSION:
+                    # Zero out weights for all classes that haven't been trained yet.
+                    # This prevents random initialization from producing high logits.
+                    future_start = (task_id + 1) * cpt
+                    if future_start < num_classes:
+                        with torch.no_grad():
+                            p_w[future_start:, :] = 0.0
+                            # Note: We do NOT lock them, so they can be trained later.
+                            
+                    if hasattr(module, 'bias') and module.bias is not None:
+                        p_b = module.bias
+                        p_b_id = id(p_b)
+                        if p_b_id not in cumulative:
+                            cumulative[p_b_id] = torch.zeros(p_b.shape, dtype=torch.bool, device=p_b.device)
                         for t in range(task_id + 1):
                             s, e = t * cpt, min((t + 1) * cpt, num_classes)
                             if s >= e: continue
-                            
-                            # EXPERT-CLASS AFFINITY:
-                            # 1. If this expert owns the task, lock the trained weights.
-                            # 2. If it does NOT own the task, zero and lock to prevent interference.
                             is_owner = (e_idx == -1) or (e_idx == (t % n_exp))
-                            
                             if is_owner:
-                                # Standard lock — preserve trained weights
-                                cumulative[p_w_id][s:e, :] = True
+                                cumulative[p_b_id][s:e] = True
                             else:
-                                # Non-owners must ZERO untrained rows to prevent random weights
-                                # from producing massive arbitrary logits during global Class-IL argmax.
                                 with torch.no_grad():
-                                    p_w[s:e, :] = 0.0
-                                    cumulative[p_w_id][s:e, :] = True # Lock them at zero!
-
-                        # [V33] FUTURE CLASS SUPPRESSION:
-                        # Zero out weights for all classes that haven't been trained yet.
-                        # This prevents random initialization from producing high logits.
-                        future_start = (task_id + 1) * cpt
-                        if future_start < num_classes:
-                            with torch.no_grad():
-                                p_w[future_start:, :] = 0.0
-                                # Note: We do NOT lock them, so they can be trained later.
-                                
-                        if hasattr(module, 'bias') and module.bias is not None:
-                            p_b = module.bias
-                            p_b_id = id(p_b)
-                            if p_b_id not in cumulative:
-                                cumulative[p_b_id] = torch.zeros(p_b.shape, dtype=torch.bool, device=p_b.device)
-                            for t in range(task_id + 1):
-                                s, e = t * cpt, min((t + 1) * cpt, num_classes)
-                                if s >= e: continue
-                                is_owner = (e_idx == -1) or (e_idx == (t % n_exp))
-                                if is_owner:
+                                    p_b[s:e] = 0.0
                                     cumulative[p_b_id][s:e] = True
-                                else:
-                                    with torch.no_grad():
-                                        p_b[s:e] = 0.0
-                                        cumulative[p_b_id][s:e] = True
-                        
-                        # FUTURE BIAS SUPPRESSION REMOVED: 
-                        # Modifying nn.Parameter bias permanently to -10.0 causes 
-                        # cross-entropy gradients to explode when those classes later become the active task.
-                        # Suppression is now handled dynamically in core.py.
-
-                    # Logic for Gate rows (Task-Specific Experts)
-                    elif "gate" in m_name.lower():
-                        # [V31.12] Router Plasticity: We lock old expert slots
-                        # but keep current slots open for adaptation.
-                        num_rows = p_w.shape[0]
-                        is_domain_router = "domain_router" in m_name.lower()
-                        is_expert_router = "expert_router" in m_name.lower()
-                        
-                        # Extract domain ID for Hierarchical MoE
-                        domain_id = -1
-                        if is_expert_router:
-                            import re
-                            match = re.search(r'domains\.(\d+)', m_name)
-                            if match:
-                                domain_id = int(match.group(1))
-
-                        for t in range(task_id + 1): # Lock completed tasks (including current)
-                            if is_domain_router:
-                                # [V33] DOMAIN PLASTICITY: We never lock the domain router.
-                                # Multiple tasks (e.g. 0-3) share the same domain row.
-                                # Locking it after Task 0 prevents it from adapting to Task 1.
-                                target_row = -1
-                            elif is_expert_router:
-                                # num_rows = experts_per_domain
-                                domain_for_t = (t % n_exp) // num_rows
-                                if domain_id == -1 or domain_id == domain_for_t:
-                                    target_row = (t % n_exp) % num_rows
-                            else:
-                                # Standard MoE gate
-                                target_row = t % num_rows
-
-                            if target_row != -1:
-                                cumulative[p_w_id][target_row, :] = True
-                                if hasattr(module, 'bias') and module.bias is not None:
-                                    p_b_id = id(module.bias)
-                                    if p_b_id not in cumulative:
-                                        cumulative[p_b_id] = torch.zeros(module.bias.shape, dtype=torch.bool, device=module.bias.device)
-                                    cumulative[p_b_id][target_row] = True
 
                 # [V31.12] Router Plasticity: Global Gate Lock Removed.
                 # We now rely on the row-wise expert locking in Section 5 above.

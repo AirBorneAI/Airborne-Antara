@@ -427,6 +427,7 @@ class AdaptiveFramework(nn.Module):
         
         # [V8.3] Maintenance Mode Flag
         self._internal_consolidation_mode = False
+        self.introspection_enabled = True
 
         # [V9.2] Mixed Precision Support for scaling to high resolutions
         self.scaler = torch.amp.GradScaler('cuda', enabled=self.config.use_amp and self.device.type == 'cuda')
@@ -1010,7 +1011,12 @@ class AdaptiveFramework(nn.Module):
             try:
                 inp = output
                 if isinstance(inp, torch.Tensor):
-                    # [BUGFIX] Fast Telemetry (inp.mean / inp.var) REMOVED to prevent A100 CUDA sync deadlocks
+                    # [BUGFIX] Asynchronous GPU telemetry
+                    if getattr(self, 'introspection_enabled', True):
+                        self.telemetry_buffer[layer_idx, 0] = inp.mean().detach().to(torch.float32)
+                        self.telemetry_buffer[layer_idx, 1] = inp.var().detach().to(torch.float32) if inp.numel() > 1 else torch.tensor(0.0, device=inp.device)
+                        self.telemetry_buffer[layer_idx, 2] = inp.min().detach().to(torch.float32)
+                        self.telemetry_buffer[layer_idx, 3] = inp.max().detach().to(torch.float32)
 
                     # Apply Adapter — skip for frozen modules (frozen expert outputs must not
                     # be modified by trainable adapters, which would bypass weight freezing)
@@ -1024,7 +1030,7 @@ class AdaptiveFramework(nn.Module):
                     # [V31.15] MIRRORMIND SENTIENCE RESTORATION: Restore missing 'mods' variable.
                     # Apply Sentient Affine Modifiers during both training and evaluation 
                     # to prevent representation shift during test-time.
-                    if getattr(self, 'current_modifiers', None) is not None:
+                    if getattr(self, 'introspection_enabled', True) and getattr(self, 'current_modifiers', None) is not None:
                         mods = self.current_modifiers
                         
                         # [V31.16] STRATEGIC SHIELD: Extended warm-up (0 to 1 over 1000 steps)
@@ -1080,7 +1086,54 @@ class AdaptiveFramework(nn.Module):
         # [V31.8] Internal Mode: Signal MoE to lock experts during Maintenance/Replay
         int_mode = getattr(self, '_internal_consolidation_mode', False)
         kwargs['internal_mode'] = int_mode
-        
+
+        # Initialize defaults
+        log_var = torch.tensor(0.0, device=self.device)
+        affine_modifiers = torch.zeros(2, device=self.device)
+
+        # Move Introspection modifier generation to the beginning of forward
+        if getattr(self, 'introspection_enabled', True):
+            try:
+                # Aggregate Telemetry
+                global_state = self.telemetry_buffer.mean(dim=0)
+                global_state = torch.nan_to_num(global_state, nan=0.0)
+                
+                # Introspection Step
+                # [V8.3] Surgical Hardening: Skip modifiers and accumulation in internal maintenance mode
+                if self._internal_consolidation_mode:
+                    log_var, action = torch.tensor(0.0, device=self.device), torch.tensor([0.0, 0.0], device=self.device)
+                    self.current_modifiers = action.detach() # [V17] Detach
+                    affine_modifiers = action.detach()
+                elif self.training:
+                    # Standard training flow
+                    log_var, action, log_prob = self.introspection_engine(global_state)
+                    # [V31.15] TITANIUM PROTECTION: Absolute Action Ceiling
+                    action = torch.nan_to_num(action, nan=0.0).clamp(-2.0, 2.0)
+                    # [V15.2 IRON CLAD] Only record log-probs during "Real" training.
+                    # If we are in internal consolidation (dreaming/replay), we skip 
+                    # meta-prob collection to prevent graph leakage across steps.
+                    if log_prob is not None and not self._internal_consolidation_mode:
+                        self.meta_log_probs.append(log_prob)
+                    self.current_modifiers = action.detach().squeeze() # [V17] CRITICAL: Detach to break step-to-step graph link
+                    if self.current_modifiers is not None and getattr(self, '_steps_since_task_start', 0) < 5:
+                        print(f"[CORTEX ALERT] Introspection Modifiers MIN: {self.current_modifiers.min().item():.4f} MAX: {self.current_modifiers.max().item():.4f}")
+                    affine_modifiers = action.detach()
+                else:
+                    # Standard inference/evaluation flow (Preserves Sentience)
+                    with torch.no_grad():
+                        log_var, action, _ = self.introspection_engine(global_state)
+                    self.current_modifiers = action.detach().squeeze() # [V17] CRITICAL: Detach to break step-to-step graph link
+                    affine_modifiers = action.detach()
+                    
+            except Exception:
+                self.meta_log_probs.clear()
+                self.current_modifiers = None
+        else:
+            self.current_modifiers = None
+            log_var = torch.tensor(0.0, device=self.device)
+            affine_modifiers = torch.tensor([0.0, 0.0], device=self.device)
+
+        # Run Model Pass (hooks will check self.current_modifiers)
         fused_latent = None
         if self.perception and len(args) == 1 and isinstance(args[0], dict):
             # Dictionary input (Multi-Modal)
@@ -1098,44 +1151,6 @@ class AdaptiveFramework(nn.Module):
         if isinstance(output, tuple) and len(output) == 2 and isinstance(output[1], torch.Tensor):
              if output[1].dtype == torch.long:
                  output, moe_indices = output
-        
-        log_var = torch.tensor(0.0).to(self.device)
-        affine_modifiers = None
-        
-        try:
-            # Aggregate Telemetry
-            global_state = self.telemetry_buffer.mean(dim=0)
-            global_state = torch.nan_to_num(global_state, nan=0.0)
-            
-            # Introspection Step
-            # [V8.3] Surgical Hardening: Skip modifiers and accumulation in internal maintenance mode
-            if self._internal_consolidation_mode:
-                log_var, action = torch.tensor(0.0), torch.tensor([0.0, 0.0])
-                self.current_modifiers = action.detach() # [V17] Detach
-                affine_modifiers = action.detach()
-            elif self.training:
-                # Standard training flow
-                log_var, action, log_prob = self.introspection_engine(global_state)
-                # [V31.15] TITANIUM PROTECTION: Absolute Action Ceiling
-                action = torch.nan_to_num(action, nan=0.0).clamp(-2.0, 2.0)
-                # [V15.2 IRON CLAD] Only record log-probs during "Real" training.
-                # If we are in internal consolidation (dreaming/replay), we skip 
-                # meta-prob collection to prevent graph leakage across steps.
-                if log_prob is not None and not self._internal_consolidation_mode:
-                    self.meta_log_probs.append(log_prob)
-                self.current_modifiers = action.detach().squeeze() # [V17] CRITICAL: Detach to break step-to-step graph link
-                if self.current_modifiers is not None and getattr(self, '_steps_since_task_start', 0) < 5:
-                    print(f"[CORTEX ALERT] Introspection Modifiers MIN: {self.current_modifiers.min().item():.4f} MAX: {self.current_modifiers.max().item():.4f}")
-                affine_modifiers = action.detach()
-            else:
-                # Standard inference/evaluation flow (Preserves Sentience)
-                with torch.no_grad():
-                    log_var, action, _ = self.introspection_engine(global_state)
-                self.current_modifiers = action.detach().squeeze() # [V17] CRITICAL: Detach to break step-to-step graph link
-                affine_modifiers = action.detach()
-                
-        except Exception:
-            self.meta_log_probs.clear()
 
         # [V8.0] Store fused latent for consciousness
         # [V17] CRITICAL: Detach to prevent cross-step graph leakage
@@ -1349,14 +1364,11 @@ class AdaptiveFramework(nn.Module):
                 if target_data.dtype in [torch.float16, torch.float32, torch.float64] or logits.shape == target_data.shape:
                     loss = F.mse_loss(logits, target_data)
                 else:
-                    # [V36] REPLAY-AWARE TASK-LOCAL CROSS-ENTROPY
-                    # When trainer.py sends a mixed batch (current + replay), we must
-                    # compute each sample's CE against its OWN task's logit slice.
-                    # Previously, all labels were shifted by -t_start, which mapped
-                    # replay labels (e.g. label 5 from Task 0 during Task 3) to
-                    # 5 - 30 = -25 → clamped to 0, poisoning 100% of replay gradients.
+                    # [V38] GLOBAL CROSS-ENTROPY FOR CLASS-IL
+                    # Compute Cross-Entropy over all classes seen so far (logits[:, :t_end])
+                    # using raw target labels. This allows the model to learn to suppress
+                    # out-of-task logits globally for both current and replay samples.
                     cpt = self.config.classes_per_task
-                    t_start = task_id * cpt
                     t_end = (task_id + 1) * cpt
                     labels_flat = target_data.view(-1)
                     
@@ -1365,56 +1377,8 @@ class AdaptiveFramework(nn.Module):
                         s_val = float(consciousness_metrics['surprise'])
                         smoothing = max(0.0, min(0.2, s_val * 0.05))
                     
-                    # Identify current-task vs replay samples
-                    current_mask = (labels_flat >= t_start) & (labels_flat < t_end)
-                    
-                    if current_mask.all():
-                        # Pure current-task batch (no replay) — fast path
-                        task_logits = logits[:, t_start:t_end]
-                        task_labels = labels_flat - t_start
-                        loss = F.cross_entropy(task_logits, task_labels, label_smoothing=smoothing)
-                    elif not current_mask.any():
-                        # Pure replay batch (rare edge case during dreaming)
-                        # Use per-sample task-local CE
-                        loss = torch.tensor(0.0, device=self.device)
-                        sample_task_ids = labels_flat // cpt
-                        for t in sample_task_ids.unique():
-                            t = int(t.item())
-                            t_mask = (sample_task_ids == t)
-                            s, e = t * cpt, (t + 1) * cpt
-                            t_logits = logits[t_mask][:, s:e]
-                            t_labels = labels_flat[t_mask] - s
-                            loss = loss + F.cross_entropy(t_logits, t_labels, label_smoothing=smoothing)
-                        loss = loss / max(1, len(sample_task_ids.unique()))
-                    else:
-                        # Mixed batch: current-task + replay samples
-                        # A. Current-task loss
-                        curr_logits = logits[current_mask][:, t_start:t_end]
-                        curr_labels = labels_flat[current_mask] - t_start
-                        loss_current = F.cross_entropy(curr_logits, curr_labels, label_smoothing=smoothing)
-                        
-                        # B. Replay loss: per-task CE on each replay sample's own slice
-                        replay_mask = ~current_mask
-                        replay_logits = logits[replay_mask]
-                        replay_labels = labels_flat[replay_mask]
-                        replay_task_ids = replay_labels // cpt
-                        
-                        loss_replay = torch.tensor(0.0, device=self.device)
-                        n_replay_tasks = 0
-                        for t in replay_task_ids.unique():
-                            t = int(t.item())
-                            t_mask = (replay_task_ids == t)
-                            s, e = t * cpt, (t + 1) * cpt
-                            t_logits = replay_logits[t_mask][:, s:e]
-                            t_labels = replay_labels[t_mask] - s
-                            loss_replay = loss_replay + F.cross_entropy(t_logits, t_labels, label_smoothing=smoothing)
-                            n_replay_tasks += 1
-                        if n_replay_tasks > 0:
-                            loss_replay = loss_replay / n_replay_tasks
-                        
-                        # Weight: current task dominates, replay provides gentle rehearsal
-                        alpha = current_mask.float().mean().item()  # fraction of current-task samples
-                        loss = alpha * loss_current + (1.0 - alpha) * loss_replay
+                    task_logits = logits[:, :t_end]
+                    loss = F.cross_entropy(task_logits, labels_flat, label_smoothing=smoothing)
                 
                 # 4. Memory Regularization
                 reg_loss = torch.tensor(0.0, device=self.device)
@@ -2413,7 +2377,7 @@ class AdaptiveFramework(nn.Module):
                 # ~mask gives non-sacred coordinates
                 non_sacred_mask = (~mask).to(param.device)
                 if non_sacred_mask.any():
-                    total_wd += (param.data * non_sacred_mask).pow(2).sum() * wd_rate
+                    total_wd += (param * non_sacred_mask).pow(2).sum() * wd_rate
             else:
                 # No mask = All weights are fair game for decay
                 total_wd += param.pow(2).sum() * wd_rate
