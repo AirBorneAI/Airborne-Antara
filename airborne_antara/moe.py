@@ -320,6 +320,10 @@ class SparseMoE(nn.Module):
             selected_inputs = x[batch_idx]
             expert_out = self.experts[i](selected_inputs, task_id=task_id)
             
+            if x.requires_grad and i == 0:
+                print(f"[CORTEX ALERT DEEP] expert_out (Domain/Expert) MIN: {expert_out.min().item():.4f} MAX: {expert_out.max().item():.4f}")
+                print(f"[CORTEX ALERT DEEP] ContinualResNet FC Bias MIN: {self.experts[i].fc.bias.min().item():.4f}")
+            
             if final_output is None:
                 out_shape = list(expert_out.shape)
                 out_shape[0] = batch_size
