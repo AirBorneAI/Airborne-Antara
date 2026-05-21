@@ -32,8 +32,8 @@ class KnowledgeGovernor:
                 for name, p in m_tracked.named_parameters():
                     if not p.requires_grad:
                         continue
-                    # [V37] Exclude routing/gating from sacred mask gathering
-                    if any(x in name.lower() for x in ["gate", "router", "moe"]):
+                    # [V37] Exclude routing/gating and fc head from sacred mask gathering
+                    if any(x in name.lower() for x in ["gate", "router", "moe", "fc"]):
                         continue
                     p_id = id(p)
                     id_to_p[p_id] = (name, p)
@@ -180,7 +180,7 @@ class KnowledgeGovernor:
                     
                     # Identify which expert this is (if any)
                     e_idx = -1
-                    if "experts." in m_name:
+                    if "experts." in m_name and "backbone" not in m_name.lower() and "shared" not in m_name.lower():
                         try:
                             ex_idx = int(m_name.split("experts.")[1].split(".")[0])
                             if "domains." in m_name:

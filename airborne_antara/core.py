@@ -270,6 +270,17 @@ class FeedbackBuffer:
                 del old_snapshot # Explicitly release memory
         self.total_seen += 1
 
+    def sample_batch(self, batch_size: int, use_priorities: bool = True):
+        """Sample a batch of snapshots uniformly."""
+        buffer_size = len(self.buffer)
+        if buffer_size == 0:
+            return []
+        effective_batch = min(batch_size, buffer_size)
+        if effective_batch <= 0:
+            return []
+        return random.sample(self.buffer, effective_batch)
+
+
 
 class IntrospectionEngine(nn.Module):
     """
@@ -453,7 +464,8 @@ class AdaptiveFramework(nn.Module):
                     num_domains=config.num_domains,
                     experts_per_domain=config.experts_per_domain,
                     top_k=config.top_k_experts,
-                    temperature=config.moe_temperature
+                    temperature=config.moe_temperature,
+                    classes_per_task=getattr(config, 'classes_per_task', 10)
                 ).to(self.device)
                 
                 # [V26.5] Redundant device sync removed to improve CPU startup performance
@@ -467,7 +479,8 @@ class AdaptiveFramework(nn.Module):
                     input_dim=moe_input_dim,
                     num_experts=config.num_experts,
                     top_k=config.top_k_experts,
-                    temperature=config.moe_temperature
+                    temperature=config.moe_temperature,
+                    classes_per_task=getattr(config, 'classes_per_task', 10)
                 ).to(self.device)
             self.logger.info("   [OK] Transformation Complete. The Mind is now distributed.")
         
@@ -1133,6 +1146,19 @@ class AdaptiveFramework(nn.Module):
             log_var = torch.tensor(0.0, device=self.device)
             affine_modifiers = torch.tensor([0.0, 0.0], device=self.device)
 
+        # Filter out MoE specific kwargs if the model doesn't accept them
+        import inspect
+        model_kwargs = kwargs.copy()
+        try:
+            sig = inspect.signature(self.model.forward)
+            has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+            if not has_kwargs:
+                for key in ['task_id', 'consciousness_state', 'internal_mode', 'target_data']:
+                    if key in model_kwargs and key not in sig.parameters:
+                        model_kwargs.pop(key)
+        except Exception:
+            pass
+
         # Run Model Pass (hooks will check self.current_modifiers)
         fused_latent = None
         if self.perception and len(args) == 1 and isinstance(args[0], dict):
@@ -1140,11 +1166,11 @@ class AdaptiveFramework(nn.Module):
             fused_latent = self.perception(args[0])
             if fused_latent is not None:
                 # Pass fused latent to base model
-                output = self.model(fused_latent, **kwargs)
+                output = self.model(fused_latent, **model_kwargs)
             else:
-                output = self.model(*args, **kwargs)
+                output = self.model(*args, **model_kwargs)
         else:
-            output = self.model(*args, **kwargs)
+            output = self.model(*args, **model_kwargs)
         
         # [V7.1] MoE Handling
         moe_indices = None
@@ -1701,6 +1727,13 @@ class AdaptiveFramework(nn.Module):
                     print("DEBUG: No samples retrieved.")
                     continue
                     
+                sample_task_ids = []
+                for s in samples:
+                    b_sz = s.input_args[0].size(0) if (len(s.input_args) > 0 and isinstance(s.input_args[0], torch.Tensor)) else 1
+                    sample_task_ids.extend([s.task_id] * b_sz)
+
+
+                    
                 # --- New Batching Logic for Multi-Input Models ---
                 try:
                     # Transpose the list of input_args tuples
@@ -1752,9 +1785,10 @@ class AdaptiveFramework(nn.Module):
                     all_logits.append((idxs, sl))
                 
                 # Reassemble logits in original order for consistency loss
-                logits = torch.zeros((len(samples), all_logits[0][1].size(-1)), device=self.device)
+                logits = torch.zeros((len(sample_task_ids), all_logits[0][1].size(-1)), device=self.device)
                 for idxs, sl in all_logits:
                     logits[idxs] = sl
+
 
                 # [V31.8] ETERNAL MIND: Latent Consistency Loss
                 # Force the internal 'Mind State' to stay identical for replayed tasks.
@@ -1972,7 +2006,7 @@ class AdaptiveFramework(nn.Module):
         
         # 2. Update Sacred Mask (The Hard-Lock)
         if self.governor:
-            self.governor.update_sacred_mask(self.memory, task_id, self.model)
+            self.governor.update_sacred_mask(self.memory, task_id, self.model, classes_per_task=self.config.classes_per_task)
             
         # 3. Enforce Protection (Gradient Shunting)
         self.apply_cas_protection()

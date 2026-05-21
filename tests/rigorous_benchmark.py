@@ -326,6 +326,7 @@ def run_rigorous_benchmark():
         use_reptile=False,
         enable_world_model=False,
         use_moe=False,
+        input_dim=INPUT_DIM,
         learning_rate=1e-3,
         compile_model=False,
     )
@@ -347,6 +348,7 @@ def run_rigorous_benchmark():
         enable_consciousness=True,
         enable_health_monitor=False, # Keep noise low
         use_reptile=False,
+        input_dim=INPUT_DIM,
         learning_rate=1e-3,
         compile_model=False,
     )

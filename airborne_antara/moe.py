@@ -52,10 +52,13 @@ class AdaptiveExpertBlock(nn.Module):
         scale = torch.tanh(scale) * 2.0 # Bound scale to [-2.0, 2.0]
         shift = torch.tanh(shift) * 5.0 # Bound shift to [-5.0, 5.0]
         
-        # 2. Reshape for broadcasting
-        view_shape = [x.size(0)] + [1] * (x.dim() - 1)
-        scale = scale.view(*view_shape)
-        shift = shift.view(*view_shape)
+        # 2. View to match input dimensions for broadcasting
+        if x.dim() == 4:
+            scale = scale.view_as(x)
+            shift = shift.view_as(x)
+        elif x.dim() == 3:
+            scale = scale.unsqueeze(1)
+            shift = shift.unsqueeze(1)
         
         # 3. Apply shared backbone with local modulation
         # This is essentially a dynamic FiLM-Expert
@@ -194,10 +197,11 @@ class SparseMoE(nn.Module):
     """
     The Sparse Mixture of Experts Container.
     """
-    def __init__(self, base_model, input_dim, num_experts=4, top_k=2, temperature=1.0):
+    def __init__(self, base_model, input_dim, num_experts=4, top_k=2, temperature=1.0, classes_per_task=10):
         super().__init__()
         self.num_experts = num_experts
         self.top_k = top_k
+        self.classes_per_task = classes_per_task
         self.use_adaptive = getattr(base_model, '_moe_adaptive', False)
         
         if self.use_adaptive:
@@ -236,8 +240,8 @@ class SparseMoE(nn.Module):
                 # for standard CIFAR100 setup. 
                 # We'll use a more general approach: zero everything, then restore source rows.
                 mask = torch.zeros(v.shape[0], dtype=torch.bool, device=v.device)
-                # Heuristic: source_idx * 10 (cpt)
-                s, e = source_idx * 10, (source_idx + 1) * 10
+                # Heuristic: source_idx * self.classes_per_task (cpt)
+                s, e = source_idx * self.classes_per_task, (source_idx + 1) * self.classes_per_task
                 if s < v.shape[0]:
                     mask[s:min(e, v.shape[0])] = True
                     
@@ -266,13 +270,11 @@ class SparseMoE(nn.Module):
         if self.training and task_id is not None:
             target_expert = task_id % self.num_experts
             
-            # [V36] REPLAY-AWARE HARD-ROUTING:
-            # When target_data contains a mixed batch (current + replay), each sample
-            # must be routed to its OWN task's expert, not blindly to the current one.
-            # Routing replay through the wrong expert produces garbage logits.
-            if target_data is not None:
-                cpt = 10
-                sample_task_ids = target_data // cpt
+            use_per_sample_routing = (target_data is not None) and (not torch.is_floating_point(target_data))
+            if use_per_sample_routing:
+                flat_targets = target_data.view(-1).to(x.device)
+                cpt = getattr(self, 'classes_per_task', 10)
+                sample_task_ids = flat_targets // cpt
                 per_sample_expert = (sample_task_ids % self.num_experts).long()
                 indices = per_sample_expert.unsqueeze(1).expand(-1, self.top_k).clone()
             else:
@@ -288,7 +290,7 @@ class SparseMoE(nn.Module):
             # Divergence Loss: Force gate logits to favor each sample's correct expert
             if hasattr(self.gate, 'gate'):
                 gate_logits = self.gate.last_logits
-                if target_data is not None:
+                if use_per_sample_routing:
                     per_sample_labels = per_sample_expert
                     routing_loss = F.cross_entropy(gate_logits, per_sample_labels)
                     self.gate.aux_loss = getattr(self.gate, 'aux_loss', 0.0) + routing_loss * 1.0
@@ -342,14 +344,15 @@ class HierarchicalMoE(nn.Module):
     """
     [V9.0] Hierarchical Mixture of Experts.
     """
-    def __init__(self, base_model, input_dim, num_domains=2, experts_per_domain=2, top_k=1, temperature=1.0):
+    def __init__(self, base_model, input_dim, num_domains=2, experts_per_domain=2, top_k=1, temperature=1.0, classes_per_task=10):
         super().__init__()
         self.num_domains = num_domains
         self.experts_per_domain = experts_per_domain
         self.top_k = top_k
+        self.classes_per_task = classes_per_task
         self.domain_router = GatingNetwork(input_dim, num_domains, top_k=1, temperature=temperature)
         self.domains = nn.ModuleList([
-            SparseMoE(base_model, input_dim, num_experts=experts_per_domain, top_k=top_k, temperature=temperature)
+            SparseMoE(base_model, input_dim, num_experts=experts_per_domain, top_k=top_k, temperature=temperature, classes_per_task=classes_per_task)
             for _ in range(num_domains)
         ])
 
@@ -408,15 +411,14 @@ class HierarchicalMoE(nn.Module):
         if self.training and task_id is not None:
             total_experts = self.num_domains * self.experts_per_domain
             target_domain = (task_id % total_experts) // self.experts_per_domain
-        if self.training and task_id is not None:
-            total_experts = self.num_domains * self.experts_per_domain
-            target_domain = (task_id % total_experts) // self.experts_per_domain
             
             # [V35] PREVENT DATA CONTAMINATION (Mixed Batch Routing)
-            if target_data is not None:
-                cpt = 10
-                sample_task_ids = target_data // cpt
-                target_labels = (sample_task_ids % total_experts) // self.experts_per_domain
+            use_per_sample_routing = (target_data is not None) and (not torch.is_floating_point(target_data))
+            if use_per_sample_routing:
+                flat_targets = target_data.view(-1).to(x.device)
+                cpt = getattr(self, 'classes_per_task', 10)
+                sample_task_ids = flat_targets // cpt
+                target_labels = ((sample_task_ids % total_experts) // self.experts_per_domain).long()
                 domain_indices = target_labels.unsqueeze(1).expand(-1, self.top_k).clone()
             else:
                 domain_indices = torch.full((x.size(0), self.top_k), target_domain, dtype=torch.long, device=x.device)

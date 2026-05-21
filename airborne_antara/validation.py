@@ -251,6 +251,7 @@ if __name__ == "__main__":
         model = nn.Linear(10, 5)
         cfg = AdaptiveFrameworkConfig(
             model_dim=10, 
+            input_dim=10,
             enable_consciousness=False, 
             enable_dreaming=False,
             enable_health_monitor=False
@@ -274,6 +275,7 @@ if __name__ == "__main__":
         model = nn.Linear(10, 5)
         cfg = AdaptiveFrameworkConfig(
             model_dim=10, 
+            input_dim=10,
             enable_consciousness=False, 
             enable_dreaming=False,
             enable_health_monitor=False,
@@ -300,6 +302,7 @@ if __name__ == "__main__":
         model = nn.Linear(10, 5)
         cfg = AdaptiveFrameworkConfig(
             model_dim=10, 
+            input_dim=10,
             enable_consciousness=False, 
             enable_dreaming=False,
             enable_health_monitor=False,
@@ -339,6 +342,7 @@ if __name__ == "__main__":
         model = nn.Linear(10, 5)
         cfg = AdaptiveFrameworkConfig(
             model_dim=10, 
+            input_dim=10,
             enable_consciousness=False, 
             enable_dreaming=True,
             dream_interval=1,  # Dream every step
