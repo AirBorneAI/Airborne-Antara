@@ -1349,24 +1349,72 @@ class AdaptiveFramework(nn.Module):
                 if target_data.dtype in [torch.float16, torch.float32, torch.float64] or logits.shape == target_data.shape:
                     loss = F.mse_loss(logits, target_data)
                 else:
-                    # [V32] TASK-LOCAL CROSS-ENTROPY: Restrict softmax to current task's classes.
-                    # Computing softmax over all 100 classes forces the backbone to suppress
-                    # frozen old-class logits, which destroys features for previous tasks.
-                    # Task-local CE eliminates this representation scrambling.
+                    # [V36] REPLAY-AWARE TASK-LOCAL CROSS-ENTROPY
+                    # When trainer.py sends a mixed batch (current + replay), we must
+                    # compute each sample's CE against its OWN task's logit slice.
+                    # Previously, all labels were shifted by -t_start, which mapped
+                    # replay labels (e.g. label 5 from Task 0 during Task 3) to
+                    # 5 - 30 = -25 → clamped to 0, poisoning 100% of replay gradients.
                     cpt = self.config.classes_per_task
                     t_start = task_id * cpt
                     t_end = (task_id + 1) * cpt
-                    task_logits = logits[:, t_start:t_end]
-                    task_labels = target_data.view(-1) - t_start
-                    # Clamp labels to valid range (safety for any label noise)
-                    task_labels = task_labels.clamp(0, cpt - 1)
+                    labels_flat = target_data.view(-1)
                     
                     smoothing = 0.0
                     if 'surprise' in consciousness_metrics:
                         s_val = float(consciousness_metrics['surprise'])
                         smoothing = max(0.0, min(0.2, s_val * 0.05))
                     
-                    loss = F.cross_entropy(task_logits, task_labels, label_smoothing=smoothing)
+                    # Identify current-task vs replay samples
+                    current_mask = (labels_flat >= t_start) & (labels_flat < t_end)
+                    
+                    if current_mask.all():
+                        # Pure current-task batch (no replay) — fast path
+                        task_logits = logits[:, t_start:t_end]
+                        task_labels = labels_flat - t_start
+                        loss = F.cross_entropy(task_logits, task_labels, label_smoothing=smoothing)
+                    elif not current_mask.any():
+                        # Pure replay batch (rare edge case during dreaming)
+                        # Use per-sample task-local CE
+                        loss = torch.tensor(0.0, device=self.device)
+                        sample_task_ids = labels_flat // cpt
+                        for t in sample_task_ids.unique():
+                            t = int(t.item())
+                            t_mask = (sample_task_ids == t)
+                            s, e = t * cpt, (t + 1) * cpt
+                            t_logits = logits[t_mask][:, s:e]
+                            t_labels = labels_flat[t_mask] - s
+                            loss = loss + F.cross_entropy(t_logits, t_labels, label_smoothing=smoothing)
+                        loss = loss / max(1, len(sample_task_ids.unique()))
+                    else:
+                        # Mixed batch: current-task + replay samples
+                        # A. Current-task loss
+                        curr_logits = logits[current_mask][:, t_start:t_end]
+                        curr_labels = labels_flat[current_mask] - t_start
+                        loss_current = F.cross_entropy(curr_logits, curr_labels, label_smoothing=smoothing)
+                        
+                        # B. Replay loss: per-task CE on each replay sample's own slice
+                        replay_mask = ~current_mask
+                        replay_logits = logits[replay_mask]
+                        replay_labels = labels_flat[replay_mask]
+                        replay_task_ids = replay_labels // cpt
+                        
+                        loss_replay = torch.tensor(0.0, device=self.device)
+                        n_replay_tasks = 0
+                        for t in replay_task_ids.unique():
+                            t = int(t.item())
+                            t_mask = (replay_task_ids == t)
+                            s, e = t * cpt, (t + 1) * cpt
+                            t_logits = replay_logits[t_mask][:, s:e]
+                            t_labels = replay_labels[t_mask] - s
+                            loss_replay = loss_replay + F.cross_entropy(t_logits, t_labels, label_smoothing=smoothing)
+                            n_replay_tasks += 1
+                        if n_replay_tasks > 0:
+                            loss_replay = loss_replay / n_replay_tasks
+                        
+                        # Weight: current task dominates, replay provides gentle rehearsal
+                        alpha = current_mask.float().mean().item()  # fraction of current-task samples
+                        loss = alpha * loss_current + (1.0 - alpha) * loss_replay
                 
                 # 4. Memory Regularization
                 reg_loss = torch.tensor(0.0, device=self.device)

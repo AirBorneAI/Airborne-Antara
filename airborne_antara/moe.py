@@ -264,9 +264,19 @@ class SparseMoE(nn.Module):
 
     def forward(self, x, task_id=None, consciousness_state: Optional[torch.Tensor] = None, internal_mode: bool = False, target_data=None):
         if self.training and task_id is not None:
-            # [SMART HARD-ROUTING] Perfect task isolation inside domain
             target_expert = task_id % self.num_experts
-            indices = torch.full((x.size(0), self.top_k), target_expert, dtype=torch.long, device=x.device)
+            
+            # [V36] REPLAY-AWARE HARD-ROUTING:
+            # When target_data contains a mixed batch (current + replay), each sample
+            # must be routed to its OWN task's expert, not blindly to the current one.
+            # Routing replay through the wrong expert produces garbage logits.
+            if target_data is not None:
+                cpt = 10
+                sample_task_ids = target_data // cpt
+                per_sample_expert = (sample_task_ids % self.num_experts).long()
+                indices = per_sample_expert.unsqueeze(1).expand(-1, self.top_k).clone()
+            else:
+                indices = torch.full((x.size(0), self.top_k), target_expert, dtype=torch.long, device=x.device)
             weights = torch.zeros((x.size(0), self.top_k), device=x.device)
             weights[:, 0] = 1.0
             
@@ -275,19 +285,13 @@ class SparseMoE(nn.Module):
             # Otherwise, the gate is 'garbage' during evaluation (Class-IL).
             gate_weights, gate_indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
             
-            # Divergence Loss: Force gate logits to favor the target_expert
+            # Divergence Loss: Force gate logits to favor each sample's correct expert
             if hasattr(self.gate, 'gate'):
                 gate_logits = self.gate.last_logits
                 if target_data is not None:
-                    cpt = 10
-                    sample_task_ids = target_data // cpt
-                    # Only train the gate on samples that actually belong to this SparseMoE instance
-                    target_labels = sample_task_ids % self.num_experts
-                    # Mask out samples that do not fall into this domain
-                    valid_mask = target_labels == target_expert
-                    if valid_mask.any():
-                        routing_loss = F.cross_entropy(gate_logits[valid_mask], target_labels[valid_mask])
-                        self.gate.aux_loss = getattr(self.gate, 'aux_loss', 0.0) + routing_loss * 1.0
+                    per_sample_labels = per_sample_expert
+                    routing_loss = F.cross_entropy(gate_logits, per_sample_labels)
+                    self.gate.aux_loss = getattr(self.gate, 'aux_loss', 0.0) + routing_loss * 1.0
                 else:
                     target_labels = torch.full((x.size(0),), target_expert, dtype=torch.long, device=x.device)
                     routing_loss = F.cross_entropy(gate_logits, target_labels)
