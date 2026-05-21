@@ -206,7 +206,7 @@ def run_main_experiments():
     print("\n🚀 Running: Full Framework (A→B→C→D)...")
     cfg_fw = AdaptiveFrameworkConfig(
         device='cpu', memory_type='hybrid', ewc_lambda=1000.0,
-        dream_interval=1, enable_consciousness=True
+        dream_interval=1, enable_consciousness=True, input_dim=10
     )
     agent_fw = AdaptiveFramework(create_base_model(), cfg_fw, device='cpu')
     history_fw, snapshots_fw = run_experiment(agent_fw, tasks)
@@ -245,7 +245,7 @@ def run_reversed_order_experiment():
     print("\n🚀 Running: Full Framework (D→C→B→A)...")
     cfg_fw = AdaptiveFrameworkConfig(
         device='cpu', memory_type='hybrid', ewc_lambda=1000.0,
-        dream_interval=1, enable_consciousness=True
+        dream_interval=1, enable_consciousness=True, input_dim=10
     )
     agent_fw = AdaptiveFramework(create_base_model(), cfg_fw, device='cpu')
     history_fw, snapshots_fw = run_experiment(agent_fw, tasks_reversed)

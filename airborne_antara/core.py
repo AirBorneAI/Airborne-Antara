@@ -1315,7 +1315,7 @@ class AdaptiveFramework(nn.Module):
                 # [V31.8] STRATEGIC MODE: Consciousness Feedback Loop
                 # Pass the LAST step's consciousness state to help route THIS step.
                 last_cons = getattr(self, '_last_consciousness_state', None)
-                output, log_var, modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id, consciousness_state=last_cons)
+                output, log_var, modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id, consciousness_state=last_cons, target_data=target_data)
                 
                 # Unpack standard model outputs
                 if isinstance(output, tuple):
