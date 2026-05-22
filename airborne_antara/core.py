@@ -2292,33 +2292,33 @@ class AdaptiveFramework(nn.Module):
         [V31.8] TITANIUM LOCK: Zero out optimizer momentum and variance for sacred weights.
         This prevents the optimizer from trying to 'undo' the sacred restoration snap.
         """
-        if not hasattr(self, 'optimizer') or self.optimizer is None:
-            return
-            
         with torch.no_grad():
-            for name, p in self.model.named_parameters():
-                if p in self.optimizer.state:
-                    state = self.optimizer.state[p]
-                    # Map unique name to sacred mask
-                    # Assuming standard m0 prefix for framework tracked models
-                    # [V31.8] We iterate through all experts if MoE
-                    unique_names = [f"m{i}_{name}" for i in range(getattr(self.model, 'num_experts', 8))]
+            optimizers = []
+            for opt_name in ['optimizer', 'adapter_optimizer', 'meta_optimizer', 'world_model_optimizer']:
+                opt = getattr(self, opt_name, None)
+                if opt is not None:
+                    optimizers.append(opt)
                     
-                    mask = None
-                    for un in unique_names:
-                        if un in self.memory.sacred_mask:
-                            m = self.memory.sacred_mask[un]
-                            if mask is None: mask = m.clone()
-                            else: mask = mask | m
-                    
+            if not optimizers:
+                return
+                
+            models_to_check = self.memory.models if (self.memory and hasattr(self.memory, 'models') and self.memory.models) else [self.model]
+            
+            for m_idx, model in enumerate(models_to_check):
+                for name, p in model.named_parameters():
+                    unique_name = f"m{m_idx}_{name}"
+                    mask = self.memory.sacred_mask.get(unique_name) if self.memory else None
                     if mask is not None and mask.any():
                         mask = mask.to(p.device)
-                        # Zero exp_avg (momentum)
-                        if 'exp_avg' in state:
-                            state['exp_avg'][mask] = 0.0
-                        # Zero exp_avg_sq (variance/velocity)
-                        if 'exp_avg_sq' in state:
-                            state['exp_avg_sq'][mask] = 0.0
+                        for opt in optimizers:
+                            if p in opt.state:
+                                state = opt.state[p]
+                                # Zero exp_avg (momentum)
+                                if 'exp_avg' in state:
+                                    state['exp_avg'][mask] = 0.0
+                                # Zero exp_avg_sq (variance/velocity)
+                                if 'exp_avg_sq' in state:
+                                    state['exp_avg_sq'][mask] = 0.0
         
         self.logger.info("[IRON MIND] Optimizer state sanitized for Titanium locked weights.")
 

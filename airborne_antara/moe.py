@@ -176,16 +176,19 @@ class GatingNetwork(nn.Module):
         batch_size = top_k_indices.size(0)
         mask = torch.zeros(batch_size, self.gate.out_features, device=x.device)
         mask.scatter_(1, top_k_indices, weights)
-        importance = mask.sum(dim=0)
-        mean_imp = importance.mean() + 1e-6
-        var_imp = importance.var()
         
-        gini_importance = weights.sum(dim=0)
+        # Cast metrics to float32 to avoid overflow/underflow under FP16
+        importance_f32 = mask.sum(dim=0).float()
+        mean_imp = importance_f32.mean() + 1e-6
+        var_imp = importance_f32.var()
+        
+        gini_importance = weights.sum(dim=0).float()
         gini_importance = gini_importance / (gini_importance.sum() + 1e-8)
         gini_loss = 1.0 - torch.sum(gini_importance**2)
         
-        # Combine Variance-based loss with Gini-based diversity
-        self.aux_loss = (var_imp / (mean_imp ** 2)) * 0.5 + (1.0 - gini_loss) * 0.5
+        # Combine Variance-based loss with Gini-based diversity with numeric guards
+        raw_aux_loss = (var_imp / (mean_imp ** 2)) * 0.5 + (1.0 - gini_loss) * 0.5
+        self.aux_loss = torch.nan_to_num(raw_aux_loss, nan=0.0, posinf=0.0, neginf=0.0).to(x.device)
         
         return weights, top_k_indices
 
