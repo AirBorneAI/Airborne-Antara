@@ -762,6 +762,7 @@ class AdaptiveFramework(nn.Module):
 
     def on_task_complete(self, task_id: int):
         """[V15 + V9.4] IRON MIND + Cognitive task boundary handler."""
+        self._current_task_id = task_id
         print(f"\n[ANTARA] Task {task_id} complete. Anchoring Knowledge...")
         
         # [V31.8] Weight Alignment (WA): Eliminate Recency Bias BEFORE Anchoring
@@ -1299,6 +1300,7 @@ class AdaptiveFramework(nn.Module):
         """
         Single training step with V8.0 enhancements.
         """
+        self._current_task_id = task_id
         self.model.train()
         
         # [V9.2 CRITICAL BUGFIX] Zero ALL optimizers
@@ -1391,11 +1393,10 @@ class AdaptiveFramework(nn.Module):
                     loss = F.mse_loss(logits, target_data)
                 else:
                     # [V38] GLOBAL CROSS-ENTROPY FOR CLASS-IL
-                    # Compute Cross-Entropy over all classes seen so far (logits[:, :t_end])
+                    # Compute Cross-Entropy over all classes (using full head)
                     # using raw target labels. This allows the model to learn to suppress
                     # out-of-task logits globally for both current and replay samples.
                     cpt = self.config.classes_per_task
-                    t_end = (task_id + 1) * cpt
                     labels_flat = target_data.view(-1)
                     
                     smoothing = 0.0
@@ -1403,8 +1404,7 @@ class AdaptiveFramework(nn.Module):
                         s_val = float(consciousness_metrics['surprise'])
                         smoothing = max(0.0, min(0.2, s_val * 0.05))
                     
-                    task_logits = logits[:, :t_end]
-                    loss = F.cross_entropy(task_logits, labels_flat, label_smoothing=smoothing)
+                    loss = F.cross_entropy(logits, labels_flat, label_smoothing=smoothing)
                 
                 # 4. Memory Regularization
                 reg_loss = torch.tensor(0.0, device=self.device)
@@ -2501,7 +2501,34 @@ class AdaptiveFramework(nn.Module):
                     # we must restore it to prevent statistic drift on foundational knowledge.
                     mean_key = f"m{m_idx}_{name}.running_mean" if name else f"m{m_idx}_running_mean"
                     if mean_key in self.memory.anchor:
-                        is_sacred = True
+                        is_future = False
+                        task_id = getattr(self, '_current_task_id', None)
+                        if task_id is not None and "experts." in name:
+                            try:
+                                parts = name.split(".")
+                                ex_idx = -1
+                                d_idx = 0
+                                for idx, part in enumerate(parts):
+                                    if part == "experts" and idx + 1 < len(parts):
+                                        ex_idx = int(parts[idx+1])
+                                    if part == "domains" and idx + 1 < len(parts):
+                                        d_idx = int(parts[idx+1])
+                                
+                                num_domains = getattr(self.model, 'num_domains', 2)
+                                experts_per_domain = getattr(self.model, 'experts_per_domain', 4)
+                                if "domains" in name:
+                                    global_expert_idx = d_idx * experts_per_domain + ex_idx
+                                else:
+                                    global_expert_idx = ex_idx
+                                
+                                trained_experts = {t % (num_domains * experts_per_domain) for t in range(task_id + 1)}
+                                if global_expert_idx not in trained_experts:
+                                    is_future = True
+                            except Exception:
+                                pass
+                        
+                        if not is_future:
+                            is_sacred = True
                     
                     m._is_sacred_bn = is_sacred
                     if is_sacred:

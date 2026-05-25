@@ -32,8 +32,9 @@ class KnowledgeGovernor:
                 for name, p in m_tracked.named_parameters():
                     if not p.requires_grad:
                         continue
-                    # [V37] Exclude routing/gating and fc head from sacred mask gathering
-                    if any(x in name.lower() for x in ["gate", "router", "moe", "fc"]):
+                    # [V37] Exclude fc head from sacred mask gathering (handled separately in Section 5)
+                    # Include gate, router, moe parameters in the sacred mask to protect routing knowledge
+                    if "fc" in name.lower():
                         continue
                     p_id = id(p)
                     id_to_p[p_id] = (name, p)

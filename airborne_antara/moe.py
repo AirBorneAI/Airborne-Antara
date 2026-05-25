@@ -302,7 +302,13 @@ class SparseMoE(nn.Module):
                     routing_loss = F.cross_entropy(gate_logits, target_labels)
                     self.gate.aux_loss = getattr(self.gate, 'aux_loss', 0.0) + routing_loss * 1.0
         else:
-            weights, indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
+            # Force top_k = 1 during evaluation to prevent logit dilution from zeroed experts
+            orig_top_k = self.gate.top_k
+            self.gate.top_k = 1
+            try:
+                weights, indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
+            finally:
+                self.gate.top_k = orig_top_k
         
         # [V31.8] STRATEGIC MODE: Expert Dropout (The Ghost Expert)
         if self.training and self.num_experts > 1 and torch.rand(1).item() < 0.1:
