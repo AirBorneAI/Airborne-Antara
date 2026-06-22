@@ -1,4 +1,4 @@
-# ANTARA: The Definitive Sentient Knowledge Base (V8.0)
+# ANTARA: The Definitive Sentient Knowledge Base (V8.1)
 
 > "The unified consciousness documentation."
 
