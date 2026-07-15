@@ -113,7 +113,7 @@ def generate_plot1():
     print("\n[STEP 1/3] Full AirborneHRS Framework on A->B->C->D...")
     cfg = AdaptiveFrameworkConfig(
         device='cpu', memory_type='hybrid', ewc_lambda=1000.0,
-        dream_interval=1, enable_consciousness=True
+        dream_interval=1, enable_consciousness=True, use_moe=False
     )
     agent = AdaptiveFramework(create_base_model(), cfg, device='cpu')
     history = run_experiment(agent, ['A', 'B', 'C', 'D'])
@@ -129,7 +129,7 @@ def generate_plot2():
     # Full Framework
     cfg = AdaptiveFrameworkConfig(
         device='cpu', memory_type='hybrid', ewc_lambda=1000.0,
-        dream_interval=1, enable_consciousness=True
+        dream_interval=1, enable_consciousness=True, use_moe=False
     )
     agent_fw = AdaptiveFramework(create_base_model(), cfg, device='cpu')
     history_fw = run_experiment(agent_fw, tasks)
@@ -171,7 +171,7 @@ def generate_plot3():
     print("   - Running: Full Framework")
     cfg_full = AdaptiveFrameworkConfig(
         device='cpu', memory_type='hybrid', ewc_lambda=1000.0,
-        dream_interval=1, enable_consciousness=True
+        dream_interval=1, enable_consciousness=True, use_moe=False
     )
     agent_full = AdaptiveFramework(create_base_model(), cfg_full, device='cpu')
     results['Full Framework'] = run_experiment(agent_full, tasks)
@@ -180,7 +180,7 @@ def generate_plot3():
     print("   - Running: No Memory")
     cfg_no_mem = AdaptiveFrameworkConfig(
         device='cpu', memory_type='none', ewc_lambda=0.0,
-        dream_interval=9999, enable_dreaming=False, enable_consciousness=True
+        dream_interval=9999, enable_dreaming=False, enable_consciousness=True, use_moe=False
     )
     agent_no_mem = AdaptiveFramework(create_base_model(), cfg_no_mem, device='cpu')
     results['No Memory'] = run_experiment(agent_no_mem, tasks)
@@ -189,7 +189,7 @@ def generate_plot3():
     print("   - Running: No Consciousness")
     cfg_no_con = AdaptiveFrameworkConfig(
         device='cpu', memory_type='hybrid', ewc_lambda=1000.0,
-        dream_interval=1, enable_consciousness=False
+        dream_interval=1, enable_consciousness=False, use_moe=False
     )
     agent_no_con = AdaptiveFramework(create_base_model(), cfg_no_con, device='cpu')
     results['No Consciousness'] = run_experiment(agent_no_con, tasks)

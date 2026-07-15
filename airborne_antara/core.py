@@ -70,7 +70,7 @@ class AdaptiveFrameworkConfig:
     evaluation_frequency: int = 10
     # How often to run dreaming/replay (in steps).
     dream_interval: int = 10 
-    dream_batch_size: int = 0 # [V26.5] Zero-Exemplar Protocol
+    dream_batch_size: int = 32 # Re-enabled Experience Replay Batch Size
     
     # Optimization
     compile_model: bool = True 
@@ -1551,6 +1551,19 @@ class AdaptiveFramework(nn.Module):
             # [V31.14] Absolute Restoration: Must be the VERY LAST thing before return.
             self._apply_sacred_restoration()
 
+            # [V8.1] Direct Weight Adaptation via PerformanceMonitor
+            if self.performance_monitor and hasattr(self, 'current_modifiers') and self.current_modifiers is not None:
+                prev_loss = getattr(self, '_last_loss_val', loss.item())
+                self.performance_monitor.adapt_weights(
+                    current_loss=loss.item(),
+                    previous_loss=prev_loss,
+                    activations={
+                        'affine_modifiers': self.current_modifiers,
+                        'telemetry_buffer': self.telemetry_buffer,
+                        'layer_map': getattr(self, 'layer_map', {})
+                    }
+                )
+
         finally:
             # MANDATORY CLEANUP (V17.0 ETERNAL MIND - TOTAL AMNESIA)
             # This runs even if forward(), backward() or optimizer.step() fails.
@@ -1570,33 +1583,15 @@ class AdaptiveFramework(nn.Module):
             # [V26.0] Maintenance: Only clear cache after consolidation or periodically
             # Aggressive clearing in every step tanks performance.
             if self.step_count % 100 == 0:
+                import gc
+                gc.collect()
                 if self.device.type == 'cuda':
                     torch.cuda.empty_cache()
 
             # [V31.8] STRATEGIC MODE: Track task-local progression
             if not hasattr(self, '_last_task_id_seen') or self._last_task_id_seen != task_id:
-                self._steps_since_task_start = 0
                 self._last_task_id_seen = task_id
-            else:
-                self._steps_since_task_start = getattr(self, '_steps_since_task_start', 0) + 1
-                import gc
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
         
-        # [V8.1] Direct Weight Adaptation via PerformanceMonitor
-        if self.performance_monitor and hasattr(self, 'current_modifiers') and self.current_modifiers is not None:
-            prev_loss = getattr(self, '_last_loss_val', loss.item())
-            self.performance_monitor.adapt_weights(
-                current_loss=loss.item(),
-                previous_loss=prev_loss,
-                activations={
-                    'affine_modifiers': self.current_modifiers,
-                    'telemetry_buffer': self.telemetry_buffer,
-                    'layer_map': getattr(self, 'layer_map', {})
-                }
-            )
-            
         # 9. Meta-Learning & Dreaming (V7.0 Restoration)
         if meta_step and self.meta_controller:
             # [V8.1] Full Meta-Controller Integration - Reptile, LR Scheduling, Curriculum
@@ -1777,7 +1772,18 @@ class AdaptiveFramework(nn.Module):
                         sub_args = [batch_args[0][idxs]]
                     
                     actual_tid = tid if tid >= 0 else None
-                    sub_outputs = self.model(*sub_args, task_id=actual_tid, internal_mode=True)
+                    model_kwargs = {'task_id': actual_tid, 'internal_mode': True}
+                    import inspect
+                    try:
+                        sig = inspect.signature(self.model.forward)
+                        has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+                        if not has_kwargs:
+                            for key in list(model_kwargs.keys()):
+                                if key not in sig.parameters:
+                                    model_kwargs.pop(key)
+                    except Exception:
+                        pass
+                    sub_outputs = self.model(*sub_args, **model_kwargs)
                     
                     if hasattr(sub_outputs, 'logits'): sl = sub_outputs[0] if getattr(sub_outputs, 'logits', None) is None else sub_outputs.logits
                     elif isinstance(sub_outputs, tuple): sl = sub_outputs[0]
@@ -1844,8 +1850,10 @@ class AdaptiveFramework(nn.Module):
                 if hasattr(self, 'teacher_model') and self.teacher_model is not None:
                     with torch.no_grad():
                         # [V31.8] Soften the teacher's knowledge
-                        teacher_logits = self.teacher_model(batch_args)
-                        if isinstance(teacher_logits, tuple): teacher_logits = teacher_logits[0]
+                        teacher_out = self.teacher_model(*batch_args)
+                        if isinstance(teacher_out, tuple): teacher_logits = teacher_out[0]
+                        else: teacher_logits = teacher_out
+                        if hasattr(teacher_logits, 'logits'): teacher_logits = teacher_logits.logits
                         soft_targets = F.softmax(teacher_logits / 2.0, dim=1) # Temp=2.0
                     
                     # Distillation Loss (KL Divergence)
@@ -1880,7 +1888,7 @@ class AdaptiveFramework(nn.Module):
                     # 7. Optimizer Steps via Scaler
                     # [V9.1] SI Accumulation MUST happen after backward but before optimizer clears grads
                     if self.memory and self.memory.method != 'none':
-                        self.memory.accumulate_importance(param_before)
+                        self.memory.accumulate_path(param_before)
                         
                     self.scaler.step(self.optimizer)
                     self.scaler.update() 
@@ -1889,7 +1897,7 @@ class AdaptiveFramework(nn.Module):
                     
                     # [V9.1] SI Accumulation MUST happen after backward but before optimizer clears grads
                     if self.memory and self.memory.method != 'none':
-                        self.memory.accumulate_importance(param_before)
+                        self.memory.accumulate_path(param_before)
                         
                     self.optimizer.step()
                 

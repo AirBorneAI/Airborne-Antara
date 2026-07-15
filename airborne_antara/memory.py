@@ -1178,7 +1178,7 @@ class PrioritizedReplayBuffer:
     def __init__(self, capacity: int = 10000, temperature: float = 0.6):
         self.capacity = capacity
         self.temperature = max(temperature, 1e-6)  # safety
-        self.buffer = [None] * capacity # Use list for O(1) index access
+        self.buffer = [] # Initialize as empty list to prevent sampling None elements
         # [V26.0] Vectorized meta-buffers
         self.importances = np.zeros(capacity, dtype=np.float32)
         self.surprises = np.zeros(capacity, dtype=np.float32)
