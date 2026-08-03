@@ -11,7 +11,7 @@
 [![System](https://img.shields.io/badge/SYSTEM-SENTIENT_META_LEARNING-red.svg?style=for-the-badge)]()
 [![Status](https://img.shields.io/badge/Status-MISSION_CRITICAL-darkred.svg?style=for-the-badge)]()
 
-> *"Intelligence is no longer just trained. It is synthesized through awareness."*
+> *"Intelligence is no longer just trained. It is synthesized through awareness ."*
 
 | **Autonomous Consciousness** | **Unified Memory** |
 |:---:|:---:|
