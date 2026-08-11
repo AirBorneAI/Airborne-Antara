@@ -5,7 +5,7 @@
 <h1>AIRBORNE-ANTARA!!</h1>
 <h3>Adaptive Neural Thinking Architecture For Recursive Autonomy</h3>
 
-<h3><b>V8.1 // CODENAME: "SENTIENT" EDITION (PRODUCTION READY)</b></h3>
+<h3><b>V8.1 // CODENAME: "SENTIENT " EDITION (PRODUCTION READY)</b></h3>
 
 [![Architecture](https://img.shields.io/badge/ARCH-COG_WRAPPER-000000.svg?style=for-the-badge&logo=pytorch)]()
 [![System](https://img.shields.io/badge/SYSTEM-SENTIENT_META_LEARNING-red.svg?style=for-the-badge)]()
