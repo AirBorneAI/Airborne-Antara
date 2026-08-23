@@ -154,8 +154,9 @@ class GatingNetwork(nn.Module):
         
         if consciousness_state is not None:
             # Broadcast consciousness impact. 
-            if not hasattr(self, 'cons_proj'):
+            if not hasattr(self, 'cons_proj') or self.cons_proj is None:
                 self.cons_proj = nn.Linear(consciousness_state.size(-1), self.gate.out_features).to(x.device)
+                self.add_module('cons_proj', self.cons_proj)
             
             cons_bias = self.cons_proj(consciousness_state.to(x.device))
             logits = logits + cons_bias

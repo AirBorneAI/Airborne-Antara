@@ -334,7 +334,6 @@ class ReptileOptimizer:
         return self
             
     def _clone_weights(self) -> Dict[str, torch.Tensor]:
-        """Deep copy current model weights to CPU."""
         """Deep copy current model weights."""
         target_model = self.model
         if hasattr(self.model, '_orig_mod'):

@@ -131,7 +131,6 @@ class Preset:
     curriculum_start_difficulty: float = 0.1
     curriculum_increase_rate: float = 0.01
     use_learned_optimizer: bool = True
-    use_learned_optimizer: bool = True
     learned_optimizer_hidden_dim: int = 32
 
     # V8.0: PERCEPTION INTERFACE

@@ -590,9 +590,6 @@ class AdaptiveFramework(nn.Module):
         self.alpha = 0.1
         self.step_count = 0
         self._cached_sacred_params = [] # [V26.0] Optimization: Cached references to sacred params
-
-        # [V26.0] Optimization: Cached references to sacred params
-        self._cached_sacred_params = [] 
         
         # 9. Optimizers
         # [V31.8] SURGICAL WD: Set weight_decay=0 here. 
@@ -675,11 +672,15 @@ class AdaptiveFramework(nn.Module):
         self.logger.info("   [OK] Cognitive Architecture initialized.")
         self.logger.info("Airborne-Antara Framework Initialized (V9.4 Eternal Edition)")
 
-    def to(self, device=None, *args, **kwargs):
+    def to(self, *args, **kwargs):
         """Override to ensure internal caches and weights are rebuilt on the new device."""
+        device = kwargs.get('device', None)
+        if device is None and len(args) > 0 and isinstance(args[0], (str, torch.device)):
+            device = args[0]
         if device is not None:
             self.device = torch.device(device)
-        super().to(device, *args, **kwargs)
+            
+        super().to(*args, **kwargs)
         
         # [V26.4] Device Affinity: Move slow weights
         if hasattr(self, 'slow_weights') and self.slow_weights:
@@ -861,15 +862,18 @@ class AdaptiveFramework(nn.Module):
         # [V31.8] ETERNAL ANCHOR: Absolute Drift Reversal
         # Strictly revert any changes to sacred parameters back to their anchored values.
         # This catches drift from Lookahead, Reptile, and Optimizer artifacts.
-        with torch.no_grad():
-            for m_idx, model in enumerate(self.memory.models):
-                for name, p in model.named_parameters():
-                    unique_name = f"m{m_idx}_{name}"
-                    mask = self.memory.sacred_mask.get(unique_name)
-                    if mask is not None and mask.any():
-                        anchor = self.memory.anchor.get(unique_name)
-                        if anchor is not None:
-                            p.data[mask] = anchor[mask.to(anchor.device)].to(p.device)
+        # [TaskBN] Snapshot task-specific BatchNorm running statistics
+        if not hasattr(self, '_task_bn_stats'):
+            self._task_bn_stats = {}
+        self._task_bn_stats[task_id] = {}
+        models_to_snap = self.memory.models if (self.memory and self.memory.models) else [self.model]
+        for m_idx, model in enumerate(models_to_snap):
+            for n, m in model.named_modules():
+                if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                    self._task_bn_stats[task_id][f"m{m_idx}_{n}"] = (
+                        m.running_mean.clone().detach(),
+                        m.running_var.clone().detach()
+                    )
         
         self.logger.info(f"Task {task_id} knowledge anchored and drift-reverted.")
 
@@ -1296,9 +1300,9 @@ class AdaptiveFramework(nn.Module):
                     p.data.copy_(new_slow)
                     self.slow_weights[n] = new_slow.detach()
 
-    def train_step(self, *model_inputs, target_data, task_id: int = 0, enable_dream: bool = True, meta_step: bool = True, record_stats: bool = True):
+    def train_step(self, *model_inputs, target_data, task_id: int = 0, enable_dream: bool = True, meta_step: bool = True, record_stats: bool = True, **model_kwargs):
         """
-        Single training step with V8.0 enhancements.
+        Single training step with V8.0 enhancements and arbitrary kwargs forwarding.
         """
         self._current_task_id = task_id
         self.model.train()
@@ -1338,8 +1342,6 @@ class AdaptiveFramework(nn.Module):
         self._clear_all_internal_caches()
         
         # [V9.4] CAS Protocol: Saturation & Expansion Trigger
-        
-        # [V9.4] CAS Protocol: Saturation & Expansion Trigger
         # If backbone is saturated (>95%), we must expand the mind.
         # [V9.4] BatchNorm Stabilization (NeurIPS Killshot)
         # Ensure that anchored modules stay in .eval() mode to prevent 
@@ -1360,7 +1362,7 @@ class AdaptiveFramework(nn.Module):
                 # [V31.8] STRATEGIC MODE: Consciousness Feedback Loop
                 # Pass the LAST step's consciousness state to help route THIS step.
                 last_cons = getattr(self, '_last_consciousness_state', None)
-                output, log_var, modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id, consciousness_state=last_cons, target_data=target_data)
+                output, log_var, modifiers, moe_indices = self.forward(*model_inputs, task_id=task_id, consciousness_state=last_cons, target_data=target_data, **model_kwargs)
                 
                 # Unpack standard model outputs
                 if isinstance(output, tuple):
@@ -1501,13 +1503,14 @@ class AdaptiveFramework(nn.Module):
                         p.grad.add_(noise)
 
             # [V31.8] ETERNAL MIND: Batch-Level LR Gating (System 3)
-            # Scale learning based on novelty. Low surprise = Low learning rate.
+            # Scale learning based on novelty when world model is active. Low surprise = Low learning rate.
             # This prevents over-writing established knowledge with familiar noise.
-            surprise_val = wm_loss.item() if 'wm_loss' in locals() else 1.0
-            lr_gate = min(1.0, max(0.2, surprise_val / 4.0)) # Linear gate in [0.2, 1.0]
-            for p in self.model.parameters():
-                if p.grad is not None:
-                    p.grad.mul_(lr_gate)
+            if self.world_model is not None and features is not None and 'wm_loss' in locals() and wm_loss.item() > 0.0:
+                surprise_val = wm_loss.item()
+                lr_gate = min(1.0, max(0.2, surprise_val / 4.0)) # Linear gate in [0.2, 1.0]
+                for p in self.model.parameters():
+                    if p.grad is not None:
+                        p.grad.mul_(lr_gate)
             
             # 6. Unscale & Clip
             self.scaler.unscale_(self.optimizer)
@@ -1738,10 +1741,13 @@ class AdaptiveFramework(nn.Module):
                     for i in range(num_args):
                         # For each argument position, concatenate the tensors from all samples
                         # [V26.1] Hardened: Explicitly move to self.device
-                        arg_tensors = [s.input_args[i].to(self.device) for s in samples]
-                        batch_args.append(torch.cat(arg_tensors, dim=0))
+                        arg_tensors = [(s.input_args[i].to(self.device) if isinstance(s.input_args[i], torch.Tensor) else s.input_args[i]) for s in samples]
+                        if all(isinstance(a, torch.Tensor) for a in arg_tensors):
+                            batch_args.append(torch.cat(arg_tensors, dim=0))
+                        else:
+                            batch_args.append(arg_tensors[0])
                     
-                    batch_targets = torch.cat([s.target.to(self.device) for s in samples], dim=0)
+                    batch_targets = torch.cat([(s.target.to(self.device) if isinstance(s.target, torch.Tensor) else s.target) for s in samples], dim=0)
 
                 except Exception as e:
                     print(f"DEBUG: Dream Batch Failed: {e}")
@@ -2011,21 +2017,6 @@ class AdaptiveFramework(nn.Module):
         finally:
             self._internal_consolidation_mode = False
 
-        
-        # 2. Update Sacred Mask (The Hard-Lock)
-        if self.governor:
-            self.governor.update_sacred_mask(self.memory, task_id, self.model, classes_per_task=self.config.classes_per_task)
-            
-        # 3. Enforce Protection (Gradient Shunting)
-        self.apply_cas_protection()
-        
-        # 4. Rebuild Restoration Cache (Post-Optimizer Recovery)
-        self._rebuild_restoration_cache()
-        
-        # 5. Clear transient buffers to free VRAM for next task
-        self.clear_cognitive_buffers()
-        self.logger.info(f"[ANTARA] Task {task_id} Knowledge Anchored. Iron Mind Active.")
-
     def consolidate_memory(self, **kwargs):
         """Wrapper for Unified Memory consolidation (Backward Compatibility)."""
         result = self.memory.consolidate(**kwargs)
@@ -2081,22 +2072,33 @@ class AdaptiveFramework(nn.Module):
             
         self.logger.info(f"Checkpoint loaded from {path}")
 
-    def inference_step(self, *model_inputs, task_id=None, return_diagnostics: bool = False, remember: bool = False):
-        """
-        Low-overhead forward pass for evaluation.
-        """
-        self.eval()
-        self._current_task_id = task_id
+    def inference_step(self, *model_inputs, task_id=None, return_diagnostics: bool = False, remember: bool = False, **model_kwargs):
         """
         [V9.1] Production Inference Step.
         Runs the cognitive loop (Perception -> World Model -> Cortex -> Consciousness)
         without updating weights. Thread-safe and optimized for serving.
         
         Args:
-            remember (bool): If True, stores the experience in Short-Term Memory and Graph Memory.
-                             This enables "One-Shot" retention without weight updates.
+            *model_inputs: Input tensors for the model.
+            task_id: Optional task identifier (for TaskBN restoration if evaluating known domain).
+            return_diagnostics: If True, returns auxiliary diagnostic telemetry.
+            remember: If True, stores the experience in Short-Term Memory and Graph Memory.
+            **model_kwargs: Additional keyword arguments forwarded to the model.
         """
+        self.eval()
+        self._current_task_id = task_id
         self.model.eval()
+        
+        # [TaskBN] Activate task-specific BatchNorm statistics if available
+        if task_id is not None and hasattr(self, '_task_bn_stats') and task_id in self._task_bn_stats:
+            models_to_check = self.memory.models if self.memory else [self.model]
+            for m_idx, model in enumerate(models_to_check):
+                for n, m in model.named_modules():
+                    key = f"m{m_idx}_{n}"
+                    if key in self._task_bn_stats[task_id]:
+                        mean_stat, var_stat = self._task_bn_stats[task_id][key]
+                        m.running_mean.copy_(mean_stat.to(m.running_mean.device))
+                        m.running_var.copy_(var_stat.to(m.running_var.device))
         
         diagnostics = {}
         
@@ -2104,7 +2106,7 @@ class AdaptiveFramework(nn.Module):
             # 1. Forward Pass
             # This handles Perception, MoE Routing, and Introspection automatically
             # [V31.7] Bug R-6 Fix: Never pass task_id during inference to avoid "oracle" leakage in Class-IL.
-            outputs, log_var, affine_modifiers, moe_indices = self.forward(*model_inputs, task_id=None)
+            outputs, log_var, affine_modifiers, moe_indices = self.forward(*model_inputs, task_id=None, **model_kwargs)
             
             # Extract main prediction
             if hasattr(outputs, 'logits'):
@@ -2406,24 +2408,24 @@ class AdaptiveFramework(nn.Module):
         if not self.memory: return total_wd
         
         total_params = 0
-        for name, param in self.model.named_parameters():
-            if not param.requires_grad: continue
-            
-            # Map name to memory key
-            # Standard MoE names are m{idx}_{name}
-            unique_name = f"m0_{name}" # Assuming expert 0 for backbone
-            mask = self.memory.sacred_mask.get(unique_name)
-            
-            if mask is not None:
-                # [V31.8] Heavy decay for non-sacred parts
-                # ~mask gives non-sacred coordinates
-                non_sacred_mask = (~mask).to(param.device)
-                if non_sacred_mask.any():
-                    total_wd += (param * non_sacred_mask).pow(2).sum() * wd_rate
-            else:
-                # No mask = All weights are fair game for decay
-                total_wd += param.pow(2).sum() * wd_rate
-            total_params += param.numel()
+        models_to_decay = self.memory.models if (self.memory and self.memory.models) else [self.model]
+        for m_idx, model in enumerate(models_to_decay):
+            for name, param in model.named_parameters():
+                if not param.requires_grad: continue
+                
+                unique_name = f"m{m_idx}_{name}"
+                mask = self.memory.sacred_mask.get(unique_name)
+                
+                if mask is not None:
+                    # [V31.8] Heavy decay for non-sacred parts
+                    # ~mask gives non-sacred coordinates
+                    non_sacred_mask = (~mask).to(param.device)
+                    if non_sacred_mask.any():
+                        total_wd += (param * non_sacred_mask).pow(2).sum() * wd_rate
+                else:
+                    # No mask = All weights are fair game for decay
+                    total_wd += param.pow(2).sum() * wd_rate
+                total_params += param.numel()
             
         if total_params > 0:
             total_wd = total_wd / total_params
@@ -2446,10 +2448,10 @@ class AdaptiveFramework(nn.Module):
             for name, module in self.model.named_modules():
                 if not isinstance(module, nn.Linear): continue
                 
-                # [V32] RESTRICTED WA: Only align actual classifier heads (fc layers),
+                # [V32] RESTRICTED WA: Only align actual classifier heads (fc/classifier/head layers),
                 # not intermediate projections in MoE gates, attention, etc.
-                # Classifier heads have output dim == num_classes and name contains 'fc'
-                is_classifier = ('fc' in name.lower() and module.out_features >= expected_out)
+                # Classifier heads have output dim == num_classes and name contains 'fc', 'classifier', 'head', or 'out_proj'
+                is_classifier = (any(k in name.lower() for k in ['fc', 'classifier', 'head', 'out_proj']) and module.out_features >= expected_out)
                 if not is_classifier: continue
                 
                 total_classes = module.out_features

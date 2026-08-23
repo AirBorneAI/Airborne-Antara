@@ -18,18 +18,18 @@ __author__ = "Suryaansh Prithvijit Singh"
 # Lazy imports to handle circular dependencies and ensure faster startup
 def __getattr__(name):
     # ==================== CORE COMPONENTS ====================
-    if name in ['AdaptiveFramework', 'AdaptiveFrameworkConfig', 'IntrospectionEngine', 'PerformanceMonitor', 'PerformanceSnapshot']:
-        from .core import AdaptiveFramework, AdaptiveFrameworkConfig, IntrospectionEngine, PerformanceMonitor, PerformanceSnapshot
+    if name in ['AdaptiveFramework', 'AdaptiveFrameworkConfig', 'IntrospectionEngine', 'PerformanceMonitor', 'PerformanceSnapshot', 'CognitiveRegime']:
+        from .core import AdaptiveFramework, AdaptiveFrameworkConfig, IntrospectionEngine, PerformanceMonitor, PerformanceSnapshot, CognitiveRegime
         return locals()[name]
     
-    # ==================== MEMORY SYSTEM (Replaces EWC/SI) ====================
-    elif name in ['UnifiedMemoryHandler', 'PrioritizedReplayBuffer', 'AdaptiveRegularization', 'DynamicConsolidationScheduler']:
-        from .memory import UnifiedMemoryHandler, PrioritizedReplayBuffer, AdaptiveRegularization, DynamicConsolidationScheduler
+    # ==================== MEMORY SYSTEM ====================
+    elif name in ['UnifiedMemoryHandler', 'PrioritizedReplayBuffer', 'AdaptiveRegularization', 'DynamicConsolidationScheduler', 'OrthogonalProjector', 'HolographicVault']:
+        from .memory import UnifiedMemoryHandler, PrioritizedReplayBuffer, AdaptiveRegularization, DynamicConsolidationScheduler, OrthogonalProjector, HolographicVault
         return locals()[name]
     
     # ==================== META CONTROLLER ====================
-    elif name in ['MetaController', 'MetaControllerConfig', 'GradientAnalyzer', 'DynamicLearningRateScheduler', 'CurriculumStrategy']:
-        from .meta_controller import MetaController, MetaControllerConfig, GradientAnalyzer, DynamicLearningRateScheduler, CurriculumStrategy
+    elif name in ['MetaController', 'MetaControllerConfig', 'GradientAnalyzer', 'DynamicLearningRateScheduler', 'CurriculumStrategy', 'ReptileOptimizer']:
+        from .meta_controller import MetaController, MetaControllerConfig, GradientAnalyzer, DynamicLearningRateScheduler, CurriculumStrategy, ReptileOptimizer
         return locals()[name]
 
     # ==================== PRODUCTION ADAPTERS ====================
@@ -38,24 +38,39 @@ def __getattr__(name):
         return locals()[name]
 
     # ==================== CONSCIOUSNESS (V2 Backend) ====================
-    # Maps 'ConsciousnessCore' to the new V2 implementation automatically
-    elif name in ['ConsciousnessCore', 'EnhancedConsciousnessCore', 'EmotionalState', 'EmotionalSystem', 'MetaCognition', 'EpisodicMemory', 'SelfModel', 'Personality', 'Introspection', 'AdaptiveAwareness']:
-        from .consciousness_v2 import EnhancedConsciousnessCore, EmotionalState, EmotionalSystem, MetaCognition, EpisodicMemory, SelfModel, Personality, AdaptiveAwareness
-        # Alias legacy name to new core
+    elif name in ['ConsciousnessCore', 'EnhancedConsciousnessCore', 'EmotionalState', 'EmotionalSystem', 'MetaCognition', 'EpisodicMemory', 'SelfModel', 'Personality', 'Introspection', 'AdaptiveAwareness', 'RecursiveGlobalWorkspace']:
+        from .consciousness_v2 import EnhancedConsciousnessCore, EmotionalState, EmotionalSystem, MetaCognition, EpisodicMemory, SelfModel, Personality, AdaptiveAwareness, RecursiveGlobalWorkspace
         if name == 'ConsciousnessCore':
             return EnhancedConsciousnessCore
-        # Backward-compatible alias to a real exported symbol.
         if name == 'Introspection':
             return MetaCognition
         return locals()[name]
 
-    # ==================== SELF AWARENESS (High-Level Wrapper) ====================
-    elif name in ['HumanLikeSelfAwarenessWrapper', 'MetaCognitiveAwarenessEngine', 'MetaCognitiveState', 'MetacognitiveState', 'ConfidenceSignal', 'CompetenceSignal', 'AdaptiveLearningController', 'SelfImprovementPlanner', 'AdaptiveAttentionMechanism', 'OutOfDistributionDetector']:
-        from .self_awareness_v2 import HumanLikeSelfAwarenessWrapper, MetaCognitiveAwarenessEngine, MetacognitiveState, ConfidenceSignal, CompetenceSignal, AdaptiveLearningController, SelfImprovementPlanner, AdaptiveAttentionMechanism, OutOfDistributionDetector
-        if name == 'MetaCognitiveState':
-            return MetacognitiveState
+    # ==================== MOE (Mixture of Experts) ====================
+    elif name in ['SparseMoE', 'HierarchicalMoE', 'GatingNetwork', 'ExpertBlock', 'AdaptiveExpertBlock']:
+        from .moe import SparseMoE, HierarchicalMoE, GatingNetwork, ExpertBlock, AdaptiveExpertBlock
         return locals()[name]
-    
+
+    # ==================== WORLD MODEL ====================
+    elif name in ['WorldModel', 'JEPAPredictor']:
+        from .world_model import WorldModel, JEPAPredictor
+        return locals()[name]
+
+    # ==================== PERCEPTION ====================
+    elif name in ['PerceptionGateway', 'VisionEncoder', 'AudioEncoder', 'ModalityFuser']:
+        from .perception import PerceptionGateway, VisionEncoder, AudioEncoder, ModalityFuser
+        return locals()[name]
+
+    # ==================== ADAPTERS ====================
+    elif name in ['AdapterBank', 'FiLMAdapter', 'BottleneckAdapter']:
+        from .adapters import AdapterBank, FiLMAdapter, BottleneckAdapter
+        return locals()[name]
+
+    # ==================== HEALTH MONITOR ====================
+    elif name == 'NeuralHealthMonitor':
+        from .health_monitor import NeuralHealthMonitor
+        return NeuralHealthMonitor
+
     # ==================== CONFIGURATION & PRESETS ====================
     elif name == 'PRESETS':
         from .presets import PRESETS
@@ -67,11 +82,6 @@ def __getattr__(name):
     # ==================== VALIDATION ====================
     elif name in ['ConfigValidator', 'validate_config']:
         from .validation import ConfigValidator, validate_config
-        return locals()[name]
-        
-    # ==================== INTEGRATION GUIDES ====================
-    elif name in ['MirrorMindWithSelfAwareness', 'MultiTaskSelfAwareLearner']:
-        from .integration_guide import MirrorMindWithSelfAwareness, MultiTaskSelfAwareLearner
         return locals()[name]
 
     # ==================== GOVERNANCE (Iron Mind) ====================
@@ -88,12 +98,15 @@ __all__ = [
     'IntrospectionEngine',
     'PerformanceMonitor',
     'PerformanceSnapshot',
+    'CognitiveRegime',
 
     # ==================== MEMORY ====================
     'UnifiedMemoryHandler',
     'PrioritizedReplayBuffer',
     'AdaptiveRegularization',
     'DynamicConsolidationScheduler',
+    'OrthogonalProjector',
+    'HolographicVault',
 
     # ==================== META CONTROLLER ====================
     'MetaController',
@@ -101,13 +114,14 @@ __all__ = [
     'GradientAnalyzer',
     'DynamicLearningRateScheduler',
     'CurriculumStrategy',
+    'ReptileOptimizer',
 
     # ==================== PRODUCTION ====================
     'ProductionAdapter',
     'InferenceMode',
 
     # ==================== CONSCIOUSNESS (V2) ====================
-    'ConsciousnessCore',              # alias → EnhancedConsciousnessCore
+    'ConsciousnessCore',
     'EnhancedConsciousnessCore',
     'EmotionalState',
     'EmotionalSystem',
@@ -117,18 +131,32 @@ __all__ = [
     'Personality',
     'Introspection',
     'AdaptiveAwareness',
+    'RecursiveGlobalWorkspace',
 
-    # ==================== SELF-AWARENESS LAYER ====================
-    'HumanLikeSelfAwarenessWrapper',
-    'MetaCognitiveAwarenessEngine',
-    'MetacognitiveState',
-    'MetaCognitiveState',
-    'ConfidenceSignal',
-    'CompetenceSignal',
-    'AdaptiveLearningController',
-    'SelfImprovementPlanner',
-    'AdaptiveAttentionMechanism',
-    'OutOfDistributionDetector',
+    # ==================== MOE ====================
+    'SparseMoE',
+    'HierarchicalMoE',
+    'GatingNetwork',
+    'ExpertBlock',
+    'AdaptiveExpertBlock',
+
+    # ==================== WORLD MODEL ====================
+    'WorldModel',
+    'JEPAPredictor',
+
+    # ==================== PERCEPTION ====================
+    'PerceptionGateway',
+    'VisionEncoder',
+    'AudioEncoder',
+    'ModalityFuser',
+
+    # ==================== ADAPTERS ====================
+    'AdapterBank',
+    'FiLMAdapter',
+    'BottleneckAdapter',
+
+    # ==================== HEALTH MONITOR ====================
+    'NeuralHealthMonitor',
 
     # ==================== PRESETS ====================
     'PRESETS',
@@ -141,10 +169,6 @@ __all__ = [
     # ==================== VALIDATION ====================
     'ConfigValidator',
     'validate_config',
-
-    # ==================== INTEGRATION ====================
-    'MirrorMindWithSelfAwareness',
-    'MultiTaskSelfAwareLearner',
 
     # ==================== GOVERNANCE ====================
     'KnowledgeGovernor',

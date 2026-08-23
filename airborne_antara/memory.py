@@ -156,8 +156,6 @@ class OrthogonalProjector:
                 res = (_grad - correction).view(orig_shape)
                 
             return res.to(orig_dtype)
-            
-            return grad # Safe fallback
         except Exception:
             return grad # Safe fallback
 
@@ -783,7 +781,7 @@ class UnifiedMemoryHandler:
                     unique_name = f"m{m_idx}_{name}"
                     imp = self.omega.get(unique_name, torch.zeros_like(p))
                     if unique_name in self.fisher_dict:
-                        imp = imp + self.fisher_dict[unique_name]
+                        imp = imp + self.fisher_dict[unique_name].to(imp.device)
                     
                     all_importances.append(imp.view(-1))
             
@@ -804,7 +802,7 @@ class UnifiedMemoryHandler:
                         unique_name = f"m{m_idx}_{name}"
                         imp = self.omega.get(unique_name, torch.zeros_like(p))
                         if unique_name in self.fisher_dict:
-                            imp = imp + self.fisher_dict[unique_name]
+                            imp = imp + self.fisher_dict[unique_name].to(imp.device)
                         
                         # Update Mask: Keep existing sacred + new high-importance
                         new_sacred = (imp >= threshold)

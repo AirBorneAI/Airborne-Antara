@@ -32,9 +32,9 @@ class KnowledgeGovernor:
                 for name, p in m_tracked.named_parameters():
                     if not p.requires_grad:
                         continue
-                    # [V37] Exclude fc head from sacred mask gathering (handled separately in Section 5)
+                    # [V37] Exclude fc/classifier/head from sacred mask gathering (handled separately in Section 5)
                     # Include gate, router, moe parameters in the sacred mask to protect routing knowledge
-                    if "fc" in name.lower():
+                    if any(x in name.lower() for x in ["fc", "classifier", "head", "out_proj"]):
                         continue
                     p_id = id(p)
                     id_to_p[p_id] = (name, p)
@@ -161,7 +161,8 @@ class KnowledgeGovernor:
                             expert_indices.add(f"{d_idx}_{ex_idx}")
                         else:
                             expert_indices.add(str(ex_idx))
-                    except: continue
+                    except Exception:
+                        continue
         
         # n_exp should be the TOTAL number of unique experts in the whole model.
         n_exp = len(expert_indices) if expert_indices else 8
@@ -169,7 +170,7 @@ class KnowledgeGovernor:
         for m_idx, m_tracked in enumerate(memory_module.models):
             for m_name, module in m_tracked.named_modules():
                 # [V37] Exclude gating networks from hard locking to preserve routing plasticity
-                if hasattr(module, 'weight') and "fc" in m_name.lower() and not any(x in m_name.lower() for x in ["gate", "router", "moe"]):
+                if hasattr(module, 'weight') and any(x in m_name.lower() for x in ["fc", "classifier", "head", "out_proj"]) and not any(x in m_name.lower() for x in ["gate", "router", "moe"]):
                     p_w = module.weight
                     p_w_id = id(p_w)
                     if p_w_id not in cumulative:
@@ -192,12 +193,15 @@ class KnowledgeGovernor:
                                 for m_inf in memory_module.models:
                                     for n_inf, _ in m_inf.named_modules():
                                         if "experts." in n_inf:
-                                            try: max_ex = max(max_ex, int(n_inf.split("experts.")[1].split(".")[0]))
-                                            except: pass
+                                            try:
+                                                max_ex = max(max_ex, int(n_inf.split("experts.")[1].split(".")[0]))
+                                            except Exception:
+                                                pass
                                 e_idx = d_idx * (max_ex + 1) + ex_idx
                             else:
                                 e_idx = ex_idx
-                        except: pass
+                        except Exception:
+                            pass
                     
                     # Lock rows for ALL completed tasks
                     for t in range(task_id + 1):
@@ -272,8 +276,10 @@ class KnowledgeGovernor:
         for m in memory_module.models:
             for name, _ in m.named_modules():
                 if name.startswith("domains.") and "." not in name[8:]:
-                    try: num_domains = max(num_domains, int(name.split(".")[1]) + 1)
-                    except: pass
+                    try:
+                        num_domains = max(num_domains, int(name.split(".")[1]) + 1)
+                    except Exception:
+                        pass
         
         if num_domains > 0:
             exp_per_dom = n_exp // num_domains
@@ -328,14 +334,6 @@ class KnowledgeGovernor:
                     memory_module.sacred_mask[name] = mask.to(mask.device)
 
         # Commit Mask Updates (Identity-Aware)
-        # Use set of PIDs for total_params to avoid overcounting shared backbones
-        total_pids = set()
-        for m in memory_module.models:
-            for p in m.parameters():
-                if p.requires_grad: total_pids.add(id(p))
-        
-        num_total = sum(p.numel() for pid in total_pids for p in [next(p for m in memory_module.models for p in m.parameters() if id(p) == pid)])
-        # Actually, a simpler way:
         unique_params = {id(p): p for m in memory_module.models for p in m.parameters() if p.requires_grad}
         num_total = sum(p.numel() for p in unique_params.values())
         total_sacred = sum(mask.sum().item() for mask in cumulative.values())
@@ -344,7 +342,8 @@ class KnowledgeGovernor:
         
         # [V31.7] Bug #8 Fix: Enforce Quota Ceiling (Emergency Pruning)
         if memory_module.saturation_level > self.quota:
-            self.logger.warning(f"[IRON MIND] Saturation ({memory_module.saturation_level:.2%}) exceeds quota ({self.quota:.2%}). Pruning mask...")
+            memory_module.expansion_required = True
+            self.logger.warning(f"[IRON MIND] Saturation ({memory_module.saturation_level:.2%}) exceeds quota ({self.quota:.2%}). Dynamic expansion recommended; pruning lowest importance weights...")
             # Proportional pruning of masks to fit within quota
             ratio = self.quota / memory_module.saturation_level
             for pid, mask in cumulative.items():
@@ -356,7 +355,7 @@ class KnowledgeGovernor:
                 # [V31.10] ABSOLUTE QUOTA: No more backbone exemptions.
                 # Only BN, FC, and Gate are critical to task identity.
                 is_bn = "bn" in p_name or "norm" in p_name
-                is_fc = "fc" in p_name
+                is_fc = any(x in p_name for x in ["fc", "classifier", "head", "out_proj"])
                 is_gate = "gate" in p_name
                 
                 is_critical = is_bn or is_fc or is_gate
