@@ -14,7 +14,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/first-interaction@v1
+      - uses: actions/first-interaction@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           issue-message: "⚡ **Welcome to AirBorne-Antara!** 🦅\n\nThank you for opening your first issue in the **AirBorneAI** ecosystem. Our core engineering team will review your report shortly. Please make sure you have checked our [Contributing Guidelines](https://github.com/AirBorneAI/.github/blob/main/CONTRIBUTING.md) and provided all reproduction steps.\n\n*Intelligence. Automation. Elevated.*"
