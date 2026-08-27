@@ -1,6 +1,6 @@
 # 🧮 Mathematical Proof: Relational Graph Memory
 
-**[⬅ Return to Architecture](../technical/SYNTHETIC_INTUITION.md) | [See Implementation (Code)](../../airbornehrs/memory.py)**
+**[⬅ Return to Architecture](../technical/SYNTHETIC_INTUITION.md) | [See Implementation (Code)](../../airborne_antara/memory.py)**
 
 ---
 

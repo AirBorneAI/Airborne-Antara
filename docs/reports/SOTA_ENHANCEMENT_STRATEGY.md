@@ -45,7 +45,7 @@ Your system is **solid foundation**, but I've identified critical SOTA upgrades:
 
 ### 1. Unified Memory Handler (SI + Adaptive Regularization)
 
-**Location:** `airbornehrs/memory.py`
+**Location:** `airborne_antara/memory.py`
 
 ```python
 class UnifiedMemoryHandler:
@@ -218,7 +218,7 @@ def get_adaptive_lambda(mode, base_lambda, step_in_mode):
 
 ## Implementation Roadmap
 
-### Step 1: Create Unified Memory System (airbornehrs/memory.py)
+### Step 1: Create Unified Memory System (airborne_antara/memory.py)
 ```
 Components:
 ├── UnifiedMemoryHandler (SI + EWC hybrid)
@@ -336,7 +336,7 @@ config = AdaptiveFrameworkConfig(
 ## Next Steps (Immediate Actions)
 
 1. ✅ **Review this document** — confirm alignment with vision
-2. 📝 **Implement airbornehrs/memory.py** — unified handlers
+2. 📝 **Implement airborne_antara/memory.py** — unified handlers
 3. 🔧 **Update core.py** — wire config + integrate memory
 4. 🧪 **Run Phase 1-7** — validate no regressions
 5. 🚀 **Run Phase 8-9** — prove streaming + few-shot capability
@@ -348,13 +348,13 @@ config = AdaptiveFrameworkConfig(
 
 ```
 CREATE:
-- airbornehrs/memory.py (600 lines)
+- airborne_antara/memory.py (600 lines)
 - experiments/protocol_v1/phase8_streaming.py (400 lines)
 - experiments/protocol_v1/phase9_metatask.py (400 lines)
 
 MODIFY:
-- airbornehrs/core.py (config + train_step integration)
-- airbornehrs/__init__.py (export new handlers)
+- airborne_antara/core.py (config + train_step integration)
+- airborne_antara/__init__.py (export new handlers)
 
 NO CHANGES:
 - ewc.py (keep existing for backward compat)

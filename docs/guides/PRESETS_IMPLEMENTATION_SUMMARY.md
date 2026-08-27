@@ -45,7 +45,7 @@ Copy-paste ready code for:
 - Testing utilities
 
 ### 4. **Integration with core**
-Updated `airbornehrs/__init__.py` to export:
+Updated `airborne_antara/__init__.py` to export:
 - `PRESETS` - Global preset manager
 - `Preset` - Configuration class
 - `load_preset()` - String-based loading
@@ -312,7 +312,7 @@ All presets have been validated for:
 
 ```
 ANTARA/
-├── airbornehrs/
+├── airborne_antara/
 │   ├── __init__.py (updated - exports presets)
 │   └── presets.py (NEW - 715 lines)
 ├── PRESETS.md (NEW - comprehensive guide)

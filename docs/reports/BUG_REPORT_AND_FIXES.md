@@ -18,7 +18,7 @@ Status: **CRITICAL BUGS FOUND AND FIXED**
 ## 🔴 CRITICAL BUGS
 
 ### BUG #1: Division by Zero in Self-Awareness Engine
-**File:** `airbornehrs/self_awareness_v2.py` Line 251
+**File:** `airborne_antara/self_awareness_v2.py` Line 251
 **Severity:** 🔴 CRITICAL - Crashes on first few steps
 
 ```python
@@ -34,7 +34,7 @@ z_score = (error.item() - self.baseline_error_mean) / (self.baseline_error_std +
 ---
 
 ### BUG #2: Gradient Flow Interruption in Memory Handler
-**File:** `airbornehrs/memory.py` Line 155-165
+**File:** `airborne_antara/memory.py` Line 155-165
 **Severity:** 🔴 CRITICAL - Breaks backprop
 
 ```python
@@ -49,7 +49,7 @@ self.omega[name] = new_omega.clamp(min=0.0, max=1e6)  # Clamp AFTER dividing
 ---
 
 ### BUG #3: Uninitialized _error_variance in Consciousness Layer
-**File:** `airbornehrs/consciousness.py` Line 146-151
+**File:** `airborne_antara/consciousness.py` Line 146-151
 **Severity:** 🔴 CRITICAL - AttributeError on first call
 
 ```python
@@ -66,7 +66,7 @@ self._error_variance = self.error_ewma * self._error_variance + (1 - self.error_
 ---
 
 ### BUG #4: Baseline Error Mean Never Updates Properly
-**File:** `airbornehrs/self_awareness_v2.py` Line 250
+**File:** `airborne_antara/self_awareness_v2.py` Line 250
 **Severity:** 🔴 CRITICAL - Breaks OOD detection
 
 ```python
@@ -185,7 +185,7 @@ if len(self.memory_buffer) > 0:
 ## 🟡 INTEGRATION BUGS
 
 ### BUG #11: Adapter Hook Registration Missing Cleanup
-**File:** `airbornehrs/core.py` Line 480-490
+**File:** `airborne_antara/core.py` Line 480-490
 **Severity:** 🟡 MEDIUM - Memory leak
 
 ```python
@@ -200,7 +200,7 @@ module.register_forward_pre_hook(self._generate_fast_hook(idx))
 ---
 
 ### BUG #12: Consciousness Layer Activated When Disabled
-**File:** `airbornehrs/core.py` Line 395-405
+**File:** `airborne_antara/core.py` Line 395-405
 **Severity:** 🟡 MEDIUM - Performance overhead
 
 ```python
@@ -216,7 +216,7 @@ if enable_consciousness:
 ---
 
 ### BUG #13: MetaController Not Properly Synced
-**File:** `airbornehrs/core.py` Line 425-435
+**File:** `airborne_antara/core.py` Line 425-435
 **Severity:** 🟡 MEDIUM - Reptile optimization never runs
 
 ```python
@@ -234,7 +234,7 @@ self.meta_controller = MetaController(self, MetaControllerConfig(
 ---
 
 ### BUG #14: Prioritized Buffer Initialization Error
-**File:** `airbornehrs/core.py` Line 355-365
+**File:** `airborne_antara/core.py` Line 355-365
 **Severity:** 🟡 MEDIUM - Crashes if replay enabled
 
 ```python
@@ -252,7 +252,7 @@ if use_prioritized:
 ---
 
 ### BUG #15: Layer Map Not Synchronized With Adapters
-**File:** `airbornehrs/core.py` Line 475-485
+**File:** `airborne_antara/core.py` Line 475-485
 **Severity:** 🟡 MEDIUM - Adapters applied to wrong layers
 
 ```python
@@ -272,7 +272,7 @@ for layer_name, idx in layer_map.items():  # Iterating layer_map
 ## 🟢 OPTIMIZATION BUGS
 
 ### BUG #16: Circular Buffer Memory Not Released
-**File:** `airbornehrs/self_awareness_v2.py` Line 145-150
+**File:** `airborne_antara/self_awareness_v2.py` Line 145-150
 **Severity:** 🟢 MEDIUM - Memory leak over time
 
 ```python
@@ -287,7 +287,7 @@ self.prediction_buffer = deque(maxlen=10000)
 ---
 
 ### BUG #17: Redundant Error Calculations
-**File:** `airbornehrs/consciousness.py` Line 100-130
+**File:** `airborne_antara/consciousness.py` Line 100-130
 **Severity:** 🟢 MEDIUM - Compute 3x same loss
 
 ```python
@@ -317,7 +317,7 @@ grid_np = grid_tensor.cpu().numpy()
 ---
 
 ### BUG #19: Duplicate Parameter Normalization
-**File:** `airbornehrs/memory.py` Line 200-210
+**File:** `airborne_antara/memory.py` Line 200-210
 **Severity:** 🟢 MEDIUM - 2x computation
 
 ```python

@@ -247,7 +247,7 @@ aware_model, weights = training_loop_with_awareness(
 ## Files Delivered
 
 ```
-airbornehrs/
+airborne_antara/
 ├── self_awareness_v2.py          # Core framework (1000+ lines)
 ├── integration_guide.py           # Integration patterns (500+ lines)
 └── __init__.py                   # Updated with new exports

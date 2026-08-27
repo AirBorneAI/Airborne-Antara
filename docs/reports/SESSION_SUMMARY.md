@@ -18,7 +18,7 @@ You asked to "Continue to iterate?" and we focused on **fixing integration bugs 
 **Fix:**
 - Changed threshold from `> 10` to `> 4` 
 - Made sample_limit adaptive: `min(32, len(buffer))`
-- Files: `airbornehrs/integration.py`, `airbornehrs/ewc.py`
+- Files: `airborne_antara/integration.py`, `airborne_antara/ewc.py`
 
 **Result:** ✅ EWC consolidation now works with small buffers
 
@@ -40,7 +40,7 @@ to the input size (torch.Size([8, 10]))
 **Fix:**
 - Convert classification labels to one-hot: `[N, num_classes]`
 - Use proper shape matching before consciousness.observe()
-- File: `airbornehrs/integration.py`
+- File: `airborne_antara/integration.py`
 
 **Result:** ✅ No more tensor shape warnings
 
@@ -62,7 +62,7 @@ ERROR: Shapes don't match
 **Fix:**
 - Added shape matching in consolidate_from_buffer()
 - Convert `[N]` class indices → `[N, C]` one-hot if output is [N, C]
-- File: `airbornehrs/ewc.py`
+- File: `airborne_antara/ewc.py`
 
 **Result:** ✅ Fisher Information computes without errors
 
@@ -120,17 +120,17 @@ All 4 benchmarks executed successfully:
 ## CODE CHANGES MADE
 
 ### Modified Files (3)
-1. **airbornehrs/integration.py**
+1. **airborne_antara/integration.py**
    - Fixed EWC consolidation threshold
    - Fixed consciousness tensor shapes
    - Added one-hot encoding for classification
 
-2. **airbornehrs/ewc.py**
+2. **airborne_antara/ewc.py**
    - Fixed buffer size check
    - Added tensor shape matching for Fisher computation
    - Handles both classification and regression
 
-3. **airbornehrs/__init__.py** (already updated in previous session)
+3. **airborne_antara/__init__.py** (already updated in previous session)
 
 ### New Files Created (3)
 1. **final_verification.py** - Already existed from previous session
@@ -203,9 +203,9 @@ results = system.evaluate(test_loader)
 ## FILES INVOLVED IN THIS SESSION
 
 **Modified:**
-- `airbornehrs/integration.py` (fixes to consolidation & consciousness)
-- `airbornehrs/ewc.py` (tensor shape matching)
-- `airbornehrs/__init__.py` (already done previous session)
+- `airborne_antara/integration.py` (fixes to consolidation & consciousness)
+- `airborne_antara/ewc.py` (tensor shape matching)
+- `airborne_antara/__init__.py` (already done previous session)
 
 **Created:**
 - `mirrorming_quick_benchmark.py` (synthetic benchmark suite)

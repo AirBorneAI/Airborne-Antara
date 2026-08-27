@@ -9,7 +9,7 @@ A **state-of-the-art, production-ready self-awareness system** that gives any Py
 ## 📦 Deliverables
 
 ### 1. Core Framework Module
-**File**: `airbornehrs/self_awareness_v2.py` (1,000+ lines)
+**File**: `airborne_antara/self_awareness_v2.py` (1,000+ lines)
 
 #### Components Included:
 - ✅ `MetaCognitiveAwarenessEngine` - Core consciousness engine
@@ -40,7 +40,7 @@ A **state-of-the-art, production-ready self-awareness system** that gives any Py
 ---
 
 ### 2. Integration Guide
-**File**: `airbornehrs/integration_guide.py` (500+ lines)
+**File**: `airborne_antara/integration_guide.py` (500+ lines)
 
 #### Integration Patterns:
 1. **Simple Wrapper Pattern** - Minimal integration
@@ -143,7 +143,7 @@ A **state-of-the-art, production-ready self-awareness system** that gives any Py
 ---
 
 ### 7. Updated Module Exports
-**File**: `airbornehrs/__init__.py`
+**File**: `airborne_antara/__init__.py`
 
 #### New Exports:
 - `HumanLikeSelfAwarenessWrapper`
@@ -398,10 +398,10 @@ Based on established principles:
 ├─ SELF_AWARENESS_IMPLEMENTATION.md
 │  └─ Implementation details and examples
 │
-├─ airbornehrs/self_awareness_v2.py
+├─ airborne_antara/self_awareness_v2.py
 │  └─ Core framework code (1000+ lines)
 │
-├─ airbornehrs/integration_guide.py
+├─ airborne_antara/integration_guide.py
 │  └─ Integration patterns (500+ lines)
 │
 └─ examples/self_awareness_demo.py
@@ -438,7 +438,7 @@ Based on established principles:
 → Read: `examples/self_awareness_demo.py` (50 mins)
 
 ### For Integration
-→ Read: `airbornehrs/integration_guide.py` (30 mins)
+→ Read: `airborne_antara/integration_guide.py` (30 mins)
 
 ---
 

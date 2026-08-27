@@ -24,7 +24,7 @@ Your ANTARA package has been **elevated to SOTA** through surgical enhancements 
 
 ## Core Enhancements (SOTA V7.0)
 
-### 1. **Unified Memory Handler** (`airbornehrs/memory.py`)
+### 1. **Unified Memory Handler** (`airborne_antara/memory.py`)
 
 **What it does:**
 - Combines SI (Synaptic Intelligence) path-integral importance with EWC Fisher Information
@@ -146,7 +146,7 @@ config = AdaptiveFrameworkConfig(
 
 ### Created (New)
 ```
-airbornehrs/memory.py (662 lines)
+airborne_antara/memory.py (662 lines)
 ├── UnifiedMemoryHandler
 ├── PrioritizedReplayBuffer
 ├── AdaptiveRegularization
@@ -164,7 +164,7 @@ SOTA_ENHANCEMENT_STRATEGY.md
 
 ### Modified
 ```
-airbornehrs/core.py (+120 lines)
+airborne_antara/core.py (+120 lines)
 ├── Added memory_type, consolidation_criterion, adaptive_lambda, use_prioritized_replay config
 ├── Integrated UnifiedMemoryHandler with SI path accumulation
 ├── Added adaptive lambda penalty computation
@@ -172,7 +172,7 @@ airbornehrs/core.py (+120 lines)
 ├── Added prioritized replay buffer feeding
 └── Updated learn_from_buffer() to use prioritized sampling
 
-airbornehrs/__init__.py (+8 lines)
+airborne_antara/__init__.py (+8 lines)
 ├── Exported UnifiedMemoryHandler, PrioritizedReplayBuffer, etc.
 └── Added SIHandler to exports
 

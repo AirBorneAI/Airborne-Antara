@@ -38,26 +38,26 @@ Configuration dataclass.
 
 ## 2. "Synthetic Intuition" Components
 
-### `WorldModel` (airbornehrs/world_model.py)
+### `WorldModel` (airborne_antara/world_model.py)
 **[Math Proof ↗](math/PREDICTIVE_SURPRISE.md)**
 Implements JEPAPredictor.
 -   `forward(z_t, action)`: Predicts next latent state $z_{t+1}$.
 -   `compute_surprise(z_pred, z_actual)`: Returns predictive error (MSE) used as intrinsic motivation.
 
-### `HierarchicalMoE` (airbornehrs/moe.py)
+### `HierarchicalMoE` (airborne_antara/moe.py)
 **[Math Proof ↗](math/FRACTAL_ROUTING.md)**
 Bi-Level Sparse Router.
 -   `forward(x)`: Routes input through Domain Router -> Expert Router.
 -   `get_active_experts()`: Returns indices of currently active experts.
 
-### `RelationalGraphMemory` (airbornehrs/memory.py)
+### `RelationalGraphMemory` (airborne_antara/memory.py)
 **[Math Proof ↗](math/SEMANTIC_GRAPH.md)**
 Graph-based Associative Memory.
 -   `add(snapshot, vector)`: Adds a node to the graph.
 -   `retrieve(query_vector, k=3)`: Finds top-K similar past events.
 -   `consolidate()`: Prunes weak nodes and merges duplicates.
 
-### `NeuralHealthMonitor` (airbornehrs/health_monitor.py)
+### `NeuralHealthMonitor` (airborne_antara/health_monitor.py)
 **[Math Proof ↗](math/AUTONOMIC_REPAIR.md)**
 Autonomic Repair Daemon.
 -   `check_health(model)`: Scans for dead neurons (>95% zero activation) and vanishing gradients.

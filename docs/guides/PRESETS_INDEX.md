@@ -317,7 +317,7 @@ for epoch in range(10):
 
 ```
 ANTARA/
-├── airbornehrs/
+├── airborne_antara/
 │   ├── __init__.py (updated - exports presets)
 │   └── presets.py (NEW - core implementation)
 ├── PRESETS.md (comprehensive guide)

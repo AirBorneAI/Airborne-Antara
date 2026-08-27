@@ -389,7 +389,7 @@ optimizer.param_groups[0]['lr'] = lr  # Adaptive LR
 **Quick Links**:
 - Full docs: `SELF_AWARENESS_DOCS.md`
 - Implementation: `SELF_AWARENESS_IMPLEMENTATION.md`
-- Integration: `airbornehrs/integration_guide.py`
+- Integration: `airborne_antara/integration_guide.py`
 - Example: `examples/self_awareness_demo.py`
 
 **Version**: 2.0 | **Status**: Production-Ready ✅

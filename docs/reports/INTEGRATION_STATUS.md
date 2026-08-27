@@ -1,4 +1,4 @@
-﻿# MIRRORMING: COMPLETE INTEGRATION SUMMARY
+# MIRRORMING: COMPLETE INTEGRATION SUMMARY
 
 **Status:** ✅ **COMPLETE & VERIFIED**  
 **Date:** 2025-12-24  
@@ -10,7 +10,7 @@
 
 - **[SESSION_SUMMARY.md](SESSION_SUMMARY.md)** - What was fixed in this session
 - **[MIRRORMING_INTEGRATION_REPORT.md](MIRRORMING_INTEGRATION_REPORT.md)** - Comprehensive technical report
-- **[mirrorming_quick_benchmark_results.json](mirrorming_quick_benchmark_results.json)** - Raw benchmark data
+- **`mirrorming_quick_benchmark_results.json`** - Raw benchmark data
 
 ---
 
@@ -46,10 +46,10 @@
 **You can now:**
 
 ```python
-from airbornehrs.integration import create_mirrorming_system
+from airborne_antara import AdaptiveFramework, PRESETS
 
-# Create system with all 5 components unified
-system = create_mirrorming_system(model, device='cuda')
+# Create system with all components unified
+agent = AdaptiveFramework(model, config=PRESETS.production())
 
 # Train with EWC + Adapters + Consciousness enabled
 for task_id, (train_loader, test_loader) in enumerate(tasks):
@@ -94,8 +94,8 @@ Overall Success:   100% ✅✅✅
 ## Files Modified This Session
 
 ### Bug Fixes
-- `airbornehrs/integration.py` - Fixed tensor shapes and buffer thresholds
-- `airbornehrs/ewc.py` - Fixed Fisher computation with proper shape matching
+- `airborne_antara/integration.py` - Fixed tensor shapes and buffer thresholds
+- `airborne_antara/ewc.py` - Fixed Fisher computation with proper shape matching
 
 ### New Features
 - `mirrorming_quick_benchmark.py` - Comprehensive benchmark suite for synthetic data
@@ -239,10 +239,10 @@ python mirrorming_quick_benchmark.py
 
 ### Use in Your Code
 ```python
-from airbornehrs.integration import create_mirrorming_system
+from airborne_antara import AdaptiveFramework, PRESETS
 
-system = create_mirrorming_system(your_model)
-metrics = system.train_step(x, y, task_id=0, use_ewc=True)
+agent = AdaptiveFramework(your_model, config=PRESETS.production())
+metrics = agent.train_step(x, target_data=y)
 ```
 
 ---

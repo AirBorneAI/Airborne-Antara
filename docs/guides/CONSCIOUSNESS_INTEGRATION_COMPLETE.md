@@ -19,7 +19,7 @@ COMPLETION STATUS: ✓ COMPLETE
 
 ## What was built:
 
-### A. Core Consciousness Components (airbornehrs/consciousness.py)
+### A. Core Consciousness Components (airborne_antara/consciousness.py)
 - **ConsciousnessCore**: Self-aware learning system
   - Observes each training example and computes internal metrics
   - Tracks learning gaps, surprise, and confidence
@@ -40,7 +40,7 @@ COMPLETION STATUS: ✓ COMPLETE
   - Monitors consolidation readiness
   - Provides decision signals for meta-control
 
-### B. Integration into Train Loop (airbornehrs/core.py)
+### B. Integration into Train Loop (airborne_antara/core.py)
 The consciousness layer is now tightly woven into the training step:
 
 1. **Early Observation (line 788+)**:
@@ -133,18 +133,18 @@ The unified memory handler provides:
 # ============================================================================
 
 ### New Files Created:
-- airbornehrs/consciousness.py (370+ lines)
+- airborne_antara/consciousness.py (370+ lines)
   - ConsciousnessCore, AttentionMechanism, IntrinisicMotivation, SelfAwarenessMonitor
 
 ### Files Modified:
-- airbornehrs/core.py
+- airborne_antara/core.py
   - Added consciousness initialization (line 390+)
   - Added consciousness observation block (line 788+)
   - Added consciousness urgency override (line 844+)
   - Added importance-weighted replay buffer update (line 1122+)
   - Initialized consciousness_urgency, cons_importance (line 720+)
 
-- airbornehrs/__init__.py
+- airborne_antara/__init__.py
   - Added exports for ConsciousnessCore, AttentionMechanism, etc.
   - Updated __all__ list
 

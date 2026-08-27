@@ -1,4 +1,4 @@
-﻿# 🧠 ANTARA: Research Results & Analysis
+# 🧠 ANTARA: Research Results & Analysis
 
 This document summarizes the key experiments conducted using the ANTARA framework (`airbornehrs`). It interprets the generated result plots, explaining the experimental goals, the visual data, and the implications for self-learning AI systems.
 
@@ -9,7 +9,7 @@ This document summarizes the key experiments conducted using the ANTARA framewor
 **File:** `universal_benchmark_results.png`
 **Source Code:** `experiments/run_multi_model.py`
 
-![1765194942365](image/Results/1765194942365.png)
+<!-- Benchmark plot: Universal Adaptation (NLP -> Vision -> Audio) -->
 
 ### 🎯 Experiment Goal
 
@@ -30,10 +30,7 @@ ANTARA successfully demonstrates **domain-agnostic meta-learning**, capable of r
 
 ## 2. Production Simulation (The "Gauntlet")
 
-**File:** `production_proof.png`
 **Source Code:** `experiments/run_production.py`
-
-![1765194974770](image/Results/1765194974770.png)
 
 ### 🎯 Experiment Goal
 
@@ -54,10 +51,7 @@ To verify that a "Lazily Trained" (underfitted) model can be deployed to product
 
 ## 3. Extreme Stress Test (Multi-Stage Drift)
 
-**File:** `proof_extreme.png`
 **Source Code:** `experiments/run_experiment.py`
-
-![1765194990306](image/Results/1765194990306.png)
 
 ### 🎯 Experiment Goal
 
@@ -84,10 +78,7 @@ The framework exhibits **robust recovery**. It survived radical shifts in logic 
 
 ## 4. The Evolution Gap (Curriculum Learning)
 
-**File:** `evolution_gap_v2.png` / `evolution_gap.png`
 **Source Code:** `experiments/run_gap.py`
-
-![1765195019127](image/Results/1765195019127.png)
 
 ### 🎯 Experiment Goal
 
@@ -108,10 +99,7 @@ To bridge the reasoning gap between smaller models (like GPT-2) and larger ones 
 
 ## 5. Operation Overdrive (Instant Memorization)
 
-**File:** `overdrive_results.png`
 **Source Code:** `experiments/run_overdrive.py`
-
-![1765195032091](image/Results/1765195032091.png)
 
 ### 🎯 Experiment Goal
 
@@ -130,10 +118,7 @@ ANTARA enables **Short-Term Weight Memory**, allowing models to memorize arbitra
 
 ## 6. ARC-AGI Benchmark
 
-**File:** `enhanced_dashboard.png`
 **Source Code:** `experiments/run_arc_gpt2.py`
-
-![1765195290320](image/Results/1765195290320.png)
 
 ### 🎯 Experiment Goal
 

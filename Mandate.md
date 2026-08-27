@@ -247,7 +247,7 @@ mode_base = {
 
 ## 6. Memory System — Unified Handler
 
-**File:** [memory.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/memory.py)
+**File:** [`memory.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/memory.py)
 
 ### 6.1 Architecture
 
@@ -316,7 +316,7 @@ Both SI and EWC penalties are summed. Fisher and Omega contribute to the same sa
 
 ## 7. Iron Mind — Knowledge Governance
 
-**File:** [governance.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/governance.py)
+**File:** [`governance.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/governance.py)
 
 ### 7.1 The Quota System
 
@@ -383,7 +383,7 @@ After masks are computed, protection is enforced via 3 mechanisms:
 
 ## 8. Mixture of Experts (MoE)
 
-**File:** [moe.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/moe.py)
+**File:** [`moe.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/moe.py)
 
 ### 8.1 SparseMoE Architecture
 
@@ -440,7 +440,7 @@ Routing: `global_expert = domain_idx * experts_per_domain + local_expert_idx`
 
 ## 9. Consciousness System
 
-**File:** [consciousness_v2.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/consciousness_v2.py)
+**File:** [`consciousness_v2.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/consciousness_v2.py)
 
 ### 9.1 Components
 
@@ -493,7 +493,7 @@ importance = 1.0 + surprise + (1 - confidence)
 
 ## 10. Meta-Controller & Reptile
 
-**File:** [meta_controller.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/meta_controller.py)
+**File:** [`meta_controller.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/meta_controller.py)
 
 ### 10.1 Reptile Optimizer
 
@@ -524,7 +524,7 @@ modes = {
 
 ## 11. World Model (I-JEPA)
 
-**File:** [world_model.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/world_model.py)
+**File:** [`world_model.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/world_model.py)
 
 ```python
 class WorldModel:
@@ -541,7 +541,7 @@ class WorldModel:
 
 ## 12. Perception Gateway
 
-**File:** [perception.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/perception.py)
+**File:** [`perception.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/perception.py)
 
 Handles multi-modal input (vision, audio, text) → fused latent.  
 **Currently disabled** in NeurIPS config (`enable_perception: False`).
@@ -550,7 +550,7 @@ Handles multi-modal input (vision, audio, text) → fused latent.
 
 ## 13. Adapters
 
-**File:** [adapters.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/adapters.py)
+**File:** [`adapters.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/adapters.py)
 
 ```python
 class AdapterBank:
@@ -760,27 +760,27 @@ prediction = clamp(logits, -10.0, 10.0)
 
 | ID | Finding | Location | Status |
 |----|---------|----------|--------|
-| **A-01** | `dream_batch_size=0` disables dreaming entirely. | [core.py:73](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L73) | **RESOLVED** — Default `dream_batch_size` set to `32` to enable replay. |
-| **A-03** | `_steps_since_task_start` double counts steps. | [core.py:1326](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1326), [core.py:1577](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1577) | **RESOLVED** — Duplicate increment removed from the finally block. Garbage collection is now optimized. |
-| **A-04** | `PerformanceMonitor.adapt_weights()` was dead code because modifiers were cleared in `finally`. | [core.py:1557](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1557), [core.py:1588](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1588) | **RESOLVED** — Call moved inside `try` block before modifiers are cleared to `None`. |
-| **A-05** | `learn_from_buffer` calls mismatched `accumulate_importance` instead of `accumulate_path`. | [core.py:1880](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1880) | **RESOLVED** — Mismatched calls changed to `accumulate_path`. |
-| **A-06** | `PrioritizedReplayBuffer` pre-allocates with `None` values causing invalid samples. | [memory.py:1181](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/memory.py#L1181) | **RESOLVED** — Buffer initialized as an empty list to dynamically size the sampling range. |
-| **A-08** | Episodic memory had orphaned task consolidation code referencing undefined `task_id`. | [core.py:2008-2024](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L2008-L2024) | **RESOLVED** — Removed orphaned mask update code from `learn_from_episodic_memory`. |
-| **A-09** | Teacher distillation in `learn_from_buffer` passes raw `batch_args` list causing crash. | [core.py:1847](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1847) | **RESOLVED** — Arguments are correctly unpacked as `*batch_args` and tuple outputs are handled. |
-| **A-10** | Inactive world model caused `lr_gate=0.2` (80% gradient throttling). | [core.py:1500-1506](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1500-L1506) | **RESOLVED** — LR gating by surprise only applied when world model is active with non-zero loss. |
-| **A-11** | Broken phantom imports in `__init__.py` (`self_awareness_v2`, `integration_guide`). | [__init__.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/__init__.py) | **RESOLVED** — Cleaned up exports and added missing core components (`SparseMoE`, `WorldModel`, etc.). |
-| **A-12** | BatchNorm covariate shift across sequential tasks without domain tracking. | [core.py:858-875](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L858-L875), [core.py:2085-2095](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L2085-L2095) | **RESOLVED** — Added TaskBN statistics snapshotting (`_task_bn_stats`) and domain restoration during evaluation. |
-| **A-13** | Universal Head Governance was restricted to `fc` layer names only. | [governance.py:35-38](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/governance.py#L35-L38), [governance.py:173](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/governance.py#L173), [core.py:2451](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L2451) | **RESOLVED** — Expanded head detection to `fc`, `classifier`, `head`, and `out_proj` for all PyTorch/HuggingFace architectures. |
-| **A-14** | `AdaptiveFramework.to()` was fragile when called with dtype (`to(torch.float16)`). | [core.py:675-688](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L675-L688) | **RESOLVED** — Added type-checking for device vs dtype in `to()` method. |
-| **A-15** | `_compute_surgical_weight_decay` only decayed `m0_` (single model). | [core.py:2404-2430](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L2404-L2430) | **RESOLVED** — Iterates over all models in `memory.models` for universal weight decay. |
-| **A-16** | `cons_proj` dynamic module in `GatingNetwork` was not registered as PyTorch submodule. | [moe.py:155-163](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/moe.py#L155-L163) | **RESOLVED** — Registered via `self.add_module('cons_proj', self.cons_proj)`. |
+| **A-01** | `dream_batch_size=0` disables dreaming entirely. | [`core.py:73`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L73) | **RESOLVED** — Default `dream_batch_size` set to `32` to enable replay. |
+| **A-03** | `_steps_since_task_start` double counts steps. | [`core.py:1326`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1326), [`core.py:1577`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1577) | **RESOLVED** — Duplicate increment removed from the finally block. Garbage collection is now optimized. |
+| **A-04** | `PerformanceMonitor.adapt_weights()` was dead code because modifiers were cleared in `finally`. | [`core.py:1557`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1557), [`core.py:1588`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1588) | **RESOLVED** — Call moved inside `try` block before modifiers are cleared to `None`. |
+| **A-05** | `learn_from_buffer` calls mismatched `accumulate_importance` instead of `accumulate_path`. | [`core.py:1880`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1880) | **RESOLVED** — Mismatched calls changed to `accumulate_path`. |
+| **A-06** | `PrioritizedReplayBuffer` pre-allocates with `None` values causing invalid samples. | [`memory.py:1181`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/memory.py#L1181) | **RESOLVED** — Buffer initialized as an empty list to dynamically size the sampling range. |
+| **A-08** | Episodic memory had orphaned task consolidation code referencing undefined `task_id`. | [`core.py:2008-2024`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L2008-L2024) | **RESOLVED** — Removed orphaned mask update code from `learn_from_episodic_memory`. |
+| **A-09** | Teacher distillation in `learn_from_buffer` passes raw `batch_args` list causing crash. | [`core.py:1847`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1847) | **RESOLVED** — Arguments are correctly unpacked as `*batch_args` and tuple outputs are handled. |
+| **A-10** | Inactive world model caused `lr_gate=0.2` (80% gradient throttling). | [`core.py:1500-1506`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1500-L1506) | **RESOLVED** — LR gating by surprise only applied when world model is active with non-zero loss. |
+| **A-11** | Broken phantom imports in `__init__.py` (`self_awareness_v2`, `integration_guide`). | [`__init__.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/__init__.py) | **RESOLVED** — Cleaned up exports and added missing core components (`SparseMoE`, `WorldModel`, etc.). |
+| **A-12** | BatchNorm covariate shift across sequential tasks without domain tracking. | [`core.py:858-875`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L858-L875), [`core.py:2085-2095`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L2085-L2095) | **RESOLVED** — Added TaskBN statistics snapshotting (`_task_bn_stats`) and domain restoration during evaluation. |
+| **A-13** | Universal Head Governance was restricted to `fc` layer names only. | [`governance.py:35-38`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/governance.py#L35-L38), [`governance.py:173`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/governance.py#L173), [`core.py:2451`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L2451) | **RESOLVED** — Expanded head detection to `fc`, `classifier`, `head`, and `out_proj` for all PyTorch/HuggingFace architectures. |
+| **A-14** | `AdaptiveFramework.to()` was fragile when called with dtype (`to(torch.float16)`). | [`core.py:675-688`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L675-L688) | **RESOLVED** — Added type-checking for device vs dtype in `to()` method. |
+| **A-15** | `_compute_surgical_weight_decay` only decayed `m0_` (single model). | [`core.py:2404-2430`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L2404-L2430) | **RESOLVED** — Iterates over all models in `memory.models` for universal weight decay. |
+| **A-16** | `cons_proj` dynamic module in `GatingNetwork` was not registered as PyTorch submodule. | [`moe.py:155-163`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/moe.py#L155-L163) | **RESOLVED** — Registered via `self.add_module('cons_proj', self.cons_proj)`. |
 
 ### 🟡 Design Observations
 
 | ID | Finding | Location | Note |
 |----|---------|----------|------|
-| **A-02** | `use_prioritized_replay=False` in default config vs `True` in presets. | [core.py:105](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L105) | Minor config mismatch. |
-| **A-07** | Inference logit clamp at `[-10, 10]` but no clamp during training. | [core.py:2111](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L2111) | Could cause minor mismatch at extreme logit boundaries. |
+| **A-02** | `use_prioritized_replay=False` in default config vs `True` in presets. | [`core.py:105`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L105) | Minor config mismatch. |
+| **A-07** | Inference logit clamp at `[-10, 10]` but no clamp during training. | [`core.py:2111`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L2111) | Could cause minor mismatch at extreme logit boundaries. |
 
 ### 🟢 Correctly Implemented
 

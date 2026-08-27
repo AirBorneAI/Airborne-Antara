@@ -1,6 +1,6 @@
 # 🧮 Mathematical Proof: Fractal Routing (Hierarchical MoE)
 
-**[⬅ Return to Architecture](../technical/SYNTHETIC_INTUITION.md) | [See Implementation (Code)](../../airbornehrs/moe.py)**
+**[⬅ Return to Architecture](../technical/SYNTHETIC_INTUITION.md) | [See Implementation (Code)](../../airborne_antara/moe.py)**
 
 ---
 

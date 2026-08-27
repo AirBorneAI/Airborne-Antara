@@ -20,7 +20,7 @@ We will resolve six critical bugs across `core.py` and `memory.py` that currentl
 ## 2. How it Will Happen (Code Modifications)
 
 ### Fix 1: Default Dream Batch Size
-**File:** [core.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L73)
+**File:** [`core.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L73)
 * Change:
 ```diff
 -    dream_batch_size: int = 0 # [V26.5] Zero-Exemplar Protocol
@@ -28,7 +28,7 @@ We will resolve six critical bugs across `core.py` and `memory.py` that currentl
 ```
 
 ### Fix 2: Steps Counter and GC Performance Fix
-**File:** [core.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1570-L1586)
+**File:** [`core.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1570-L1586)
 * Change in `finally` block:
 ```diff
              # [V26.0] Maintenance: Only clear cache after consolidation or periodically
@@ -52,7 +52,7 @@ We will resolve six critical bugs across `core.py` and `memory.py` that currentl
 ```
 
 ### Fix 3: Direct Weight Adaptation Placement
-**File:** [core.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1553-L1599)
+**File:** [`core.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1553-L1599)
 * Change: Move weight adaptation logic from post-finally to the end of the `try` block (right after `_apply_sacred_restoration()`).
 ```diff
              # [V17] Post-Optimizer Sacred Restoration (combats weight decay drift)
@@ -90,7 +90,7 @@ We will resolve six critical bugs across `core.py` and `memory.py` that currentl
 ```
 
 ### Fix 4: Path Accumulation Alignment in Dreaming
-**File:** [core.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1883-L1892)
+**File:** [`core.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1883-L1892)
 * Change:
 ```diff
                      # 7. Optimizer Steps via Scaler
@@ -113,7 +113,7 @@ We will resolve six critical bugs across `core.py` and `memory.py` that currentl
 ```
 
 ### Fix 5: PrioritizedReplayBuffer Optimization
-**File:** [memory.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/memory.py#L1181)
+**File:** [`memory.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/memory.py#L1181)
 * Change `__init__` and `add`:
 ```diff
      def __init__(self, capacity: int = 10000, temperature: float = 0.6):
@@ -141,7 +141,7 @@ We will resolve six critical bugs across `core.py` and `memory.py` that currentl
 ```
 
 ### Fix 6: Distillation Unpacking Fix
-**File:** [core.py](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Antara/Mirror_mind/airborne_antara/core.py#L1847)
+**File:** [`core.py`](https://github.com/AirBorneAI/Airborne-Antara/blob/main/airborne_antara/core.py#L1847)
 * Change:
 ```diff
                  if hasattr(self, 'teacher_model') and self.teacher_model is not None:

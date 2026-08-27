@@ -1,6 +1,6 @@
 # 🧮 Mathematical Proof: Cross-Modality Attention (XMA)
 
-**[⬅ Return to Architecture](../technical/SYNTHETIC_INTUITION.md) | [See Implementation (Code)](../../airbornehrs/perception.py)**
+**[⬅ Return to Architecture](../technical/SYNTHETIC_INTUITION.md) | [See Implementation (Code)](../../airborne_antara/perception.py)**
 
 ---
 

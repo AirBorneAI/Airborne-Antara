@@ -26,17 +26,17 @@ All 5 core components are now seamlessly integrated into a single `ANTARASystem`
 ### Issue 1: EWC Consolidation Threshold
 **Problem:** EWC consolidation required buffer size > 10, but verification script only generated 5 samples  
 **Solution:** Reduced threshold to > 4 and made sample limit adaptive  
-**Files Modified:** `airbornehrs/integration.py`, `airbornehrs/ewc.py`
+**Files Modified:** `airborne_antara/integration.py`, `airborne_antara/ewc.py`
 
 ### Issue 2: Tensor Shape Mismatch in Consciousness
 **Problem:** Classification targets were `[N]` but consciousness expected `[N, num_classes]` for MSELoss  
 **Solution:** Convert classification labels to one-hot encoding before consciousness.observe()  
-**Files Modified:** `airbornehrs/integration.py`
+**Files Modified:** `airborne_antara/integration.py`
 
 ### Issue 3: EWC Fisher Computation Tensor Mismatch
 **Problem:** During Fisher information computation, target shape didn't match output shape  
 **Solution:** Added shape matching logic to convert class indices to one-hot or unsqueeze as needed  
-**Files Modified:** `airbornehrs/ewc.py`
+**Files Modified:** `airborne_antara/ewc.py`
 
 ---
 
@@ -305,7 +305,7 @@ Output (loss, accuracy, consciousness metrics)
 ## CODE CHANGES SUMMARY
 
 ### Files Created (New Integration)
-1. **airbornehrs/integration.py** (381 lines)
+1. **airborne_antara/integration.py** (381 lines)
    - ANTARASystem class
    - Unified train_step() method
    - consolidate_task_memory() for EWC
@@ -328,17 +328,17 @@ Output (loss, accuracy, consciousness metrics)
    - Diagnostic script for EWC issues
 
 ### Files Modified (Bug Fixes)
-1. **airbornehrs/integration.py**
+1. **airborne_antara/integration.py**
    - Fixed EWC consolidation threshold (> 10 → > 4)
    - Fixed consciousness tensor shapes (one-hot encoding)
    - Added adaptive sample limiting
 
-2. **airbornehrs/ewc.py**
+2. **airborne_antara/ewc.py**
    - Fixed consolidate_from_buffer buffer check (> 10 → > 5)
    - Added tensor shape matching for Fisher computation
    - Handles classification and regression targets
 
-3. **airbornehrs/__init__.py** (Minor update)
+3. **airborne_antara/__init__.py** (Minor update)
    - Added lazy imports for ANTARASystem
    - Added create_mirrorming_system factory function
 

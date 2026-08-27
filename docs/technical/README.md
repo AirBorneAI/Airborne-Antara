@@ -167,17 +167,17 @@
 ### By Goal
 
 **"I want to understand how ANTARA prevents forgetting"**
-1. Read: [README.md - Section 4: Memory Consolidation](../README.md#4-memory-consolidation)
+1. Read: [README.md - Section 4: Memory Consolidation](../../README.md#4-memory-consolidation)
 2. Deep dive: [EWC_MATHEMATICS.md](EWC_MATHEMATICS.md)
 3. Context: [MEMORY_CONSOLIDATION.md - Section 3: Semantic Memory](MEMORY_CONSOLIDATION.md#3-semantic-memory-fisher-information-revisited)
 
 **"I want to understand meta-learning and fast adaptation"**
-1. Read: [README.md - Section 5: Meta-Learning](../README.md#5-meta-learning-subsystem)
+1. Read: [README.md - Section 5: Meta-Learning](../../README.md#5-meta-learning-subsystem)
 2. Deep dive: [REPTILE_MATHEMATICS.md](REPTILE_MATHEMATICS.md)
 3. Integration: [MEMORY_CONSOLIDATION.md - Section 5: Meta Memory](MEMORY_CONSOLIDATION.md#5-meta-memory-reptile-consolidation)
 
 **"I want to understand anomaly detection and OOD detection"**
-1. Read: [README.md - Section 3: Introspection](../README.md#3-introspection-subsystem)
+1. Read: [README.md - Section 3: Introspection](../../README.md#3-introspection-subsystem)
 2. Deep dive: [INTROSPECTION_MATHEMATICS.md](INTROSPECTION_MATHEMATICS.md)
 3. Applications: [INTROSPECTION_MATHEMATICS.md - Section 7: OOD Detection](INTROSPECTION_MATHEMATICS.md#7-ood-detection-via-statistical-monitoring)
 
@@ -201,7 +201,7 @@
 ### By Difficulty Level
 
 **Beginner (No Math Background Needed)**
-- [README.md](../README.md) sections 0-5
+- [README.md](../../README.md) sections 0-5
 - [EWC_MATHEMATICS.md - Sections 1-2](EWC_MATHEMATICS.md#1-the-problem-catastrophic-forgetting)
 - [REPTILE_MATHEMATICS.md - Sections 1-2](REPTILE_MATHEMATICS.md#1-the-problem-standard-learning-oscillates-on-new-tasks)
 
@@ -221,10 +221,10 @@
 ### By Time Available
 
 **5-minute quickstart:**
-- [README.md - Section 2: System Overview](../README.md#2-system-overview)
+- [README.md - Section 2: System Overview](../../README.md#2-system-overview)
 
 **30-minute overview:**
-- [README.md - Sections 0-8](../README.md)
+- [README.md - Sections 0-8](../../README.md)
 
 **2-hour deep dive:**
 - Pick 1-2 technical documents
@@ -364,4 +364,4 @@ If you have questions about any document:
 
 **Happy Learning! 🚀**
 
-Start with [README.md](../README.md) for an overview, then pick a technical document based on your interests!
+Start with [README.md](../../README.md) for an overview, then pick a technical document based on your interests!

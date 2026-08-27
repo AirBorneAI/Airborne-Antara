@@ -1,6 +1,6 @@
 # 🧮 Mathematical Proof: Predictive Surprise (World Model)
 
-**[⬅ Return to Architecture](../technical/SYNTHETIC_INTUITION.md) | [See Implementation (Code)](../../airbornehrs/world_model.py)**
+**[⬅ Return to Architecture](../technical/SYNTHETIC_INTUITION.md) | [See Implementation (Code)](../../airborne_antara/world_model.py)**
 
 ---
 

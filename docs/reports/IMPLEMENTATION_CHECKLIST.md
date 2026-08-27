@@ -4,15 +4,15 @@
 
 ### Numerical Stability Fixes
 - [x] **BUG #1 & #4**: Adaptive EMA for baseline error
-  - File: `airbornehrs/self_awareness_v2.py` Line 250-265
+  - File: `airborne_antara/self_awareness_v2.py` Line 250-265
   - Status: Applied ✅ Validated ✅
 
 - [x] **BUG #2**: Division by zero protection in memory handler
-  - File: `airbornehrs/memory.py` Line 180-195
+  - File: `airborne_antara/memory.py` Line 180-195
   - Status: Applied ✅ Validated ✅
 
 - [x] **BUG #3**: Variance computation initialization
-  - File: `airbornehrs/consciousness.py` Line 138-153
+  - File: `airborne_antara/consciousness.py` Line 138-153
   - Status: Applied ✅ Validated ✅
 
 - [x] **BUG #5**: Score calculation NaN protection
@@ -34,7 +34,7 @@
 
 ### Integration Fixes
 - [x] **BUG #12**: Consciousness default set to False
-  - File: `airbornehrs/core.py` Line 396
+  - File: `airborne_antara/core.py` Line 396
   - Status: Applied ✅ Validated ✅
 
 ---
@@ -43,33 +43,33 @@
 
 ### High Priority Integration
 - [ ] **BUG #11**: Hook cleanup mechanism
-  - File: `airbornehrs/core.py` (~Line 425)
+  - File: `airborne_antara/core.py` (~Line 425)
   - Reference: REMAINING_FIXES.md
   - Benefit: Prevent hook accumulation on re-initialization
 
 - [ ] **BUG #13**: MetaController update integration
-  - File: `airbornehrs/core.py` train_step() method
+  - File: `airborne_antara/core.py` train_step() method
   - Reference: REMAINING_FIXES.md
   - Benefit: Enable Reptile optimization (currently unused)
 
 - [ ] **BUG #14**: Prioritized buffer safe initialization
-  - File: `airbornehrs/core.py` (~Line 355)
+  - File: `airborne_antara/core.py` (~Line 355)
   - Reference: REMAINING_FIXES.md
   - Benefit: Graceful fallback if prioritized replay unavailable
 
 - [ ] **BUG #15**: Layer map synchronization
-  - File: `airbornehrs/core.py` PerformanceMonitor.adapt_weights()
+  - File: `airborne_antara/core.py` PerformanceMonitor.adapt_weights()
   - Reference: REMAINING_FIXES.md
   - Benefit: Correct adapter application to right layers
 
 ### Optimization Improvements
 - [ ] **BUG #16**: Memory leak prevention
-  - File: `airbornehrs/core.py` FeedbackBuffer.add()
+  - File: `airborne_antara/core.py` FeedbackBuffer.add()
   - Reference: REMAINING_FIXES.md
   - Benefit: ~5MB memory saved per 10k samples
 
 - [ ] **BUG #17**: Redundant error computation
-  - File: `airbornehrs/consciousness.py` observe()
+  - File: `airborne_antara/consciousness.py` observe()
   - Reference: REMAINING_FIXES.md
   - Benefit: ~5-10% faster per observation
 
@@ -79,7 +79,7 @@
   - Benefit: Reduced PCIe overhead ~2-3%
 
 - [ ] **BUG #19**: Omega normalization caching
-  - File: `airbornehrs/memory.py` consolidate()
+  - File: `airborne_antara/memory.py` consolidate()
   - Reference: REMAINING_FIXES.md
   - Benefit: ~3% faster memory consolidation
 

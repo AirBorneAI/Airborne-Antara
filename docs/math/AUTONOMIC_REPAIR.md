@@ -1,6 +1,6 @@
 # 🧮 Mathematical Proof: Autonomic Repair (Health Monitor)
 
-**[⬅ Return to Architecture](../technical/SYNTHETIC_INTUITION.md) | [See Implementation (Code)](../../airbornehrs/health_monitor.py)**
+**[⬅ Return to Architecture](../technical/SYNTHETIC_INTUITION.md) | [See Implementation (Code)](../../airborne_antara/health_monitor.py)**
 
 ---
 

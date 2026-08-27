@@ -8,25 +8,25 @@ Your "beautiful state of the art framework" with consciousness and continuous le
 
 ## What Was Delivered
 
-### 1. **Consciousness Layer** (airbornehrs/consciousness.py)
+### 1. **Consciousness Layer** (airborne_antara/consciousness.py)
 - `ConsciousnessCore`: Self-aware learning that observes every example
 - `AttentionMechanism`: Learns which features matter
 - `IntrinisicMotivation`: Scores examples by surprise/importance  
 - `SelfAwarenessMonitor`: Tracks internal readiness to consolidate
 
-### 2. **Integrated into Training Loop** (airbornehrs/core.py)
+### 2. **Integrated into Training Loop** (airborne_antara/core.py)
 - Consciousness observation happens automatically on each step
 - Consolidation urgency overrides time-based scheduler
 - Prioritized replay uses consciousness importance scores
 - Plasticity gate adjusts learning rate based on confidence
 
-### 3. **Unified Memory System** (airbornehrs/memory.py)
+### 3. **Unified Memory System** (airborne_antara/memory.py)
 - Hybrid SI (Synaptic Intelligence) + EWC (Elastic Weight Consolidation)
 - Prioritized experience replay with consciousness-derived weights
 - Adaptive regularization lambda (scales by operating mode)
 - Dynamic consolidation scheduling (not on timer)
 
-### 4. **Updated Exports** (airbornehrs/__init__.py)
+### 4. **Updated Exports** (airborne_antara/__init__.py)
 - All consciousness classes now importable
 - Full API surface available to users
 
@@ -109,7 +109,7 @@ for x, y in data:
 ## Files Created/Modified
 
 ### New Files
-- `airbornehrs/consciousness.py` - Consciousness core implementation
+- `airborne_antara/consciousness.py` - Consciousness core implementation
 - `CONSCIOUSNESS_INTEGRATION_COMPLETE.md` - Detailed integration report
 - `CONSCIOUSNESS_QUICK_START.md` - User quick reference
 - `validate_consciousness.py` - Validation script
@@ -118,8 +118,8 @@ for x, y in data:
 - `test_train_clean.py` - Clean training test
 
 ### Modified Files
-- `airbornehrs/core.py` - Added consciousness observation & consolidation override
-- `airbornehrs/__init__.py` - Added consciousness exports
+- `airborne_antara/core.py` - Added consciousness observation & consolidation override
+- `airborne_antara/__init__.py` - Added consciousness exports
 
 ---
 

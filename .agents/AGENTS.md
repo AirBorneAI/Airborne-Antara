@@ -4,7 +4,7 @@
 
 Before writing or modifying ANY code in `airborne_antara/` or `NeurIPS/`, every agent MUST:
 
-1. Read [Mandate.md](file:///c:/Users/surya/.inUse/ultorg/airborne-code/Airborne-Antara/Mandate.md) in full.
+1. Read `Mandate.md` in full.
 2. Understand the data flow section (§4–§5) before modifying `core.py`.
 3. Understand the protection stack (§7) before touching `governance.py`, `memory.py`, or any mask/anchor logic.
 4. Understand the MoE routing (§8) before touching `moe.py`.
