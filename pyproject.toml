@@ -57,10 +57,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Ultron09/Mirror_mind"
-Documentation = "https://github.com/Ultron09/Mirror_mind#readme"
-Repository = "https://github.com/Ultron09/Mirror_mind.git"
-Issues = "https://github.com/Ultron09/Mirror_mind/issues"
+Homepage = "https://github.com/AirBorneAI/Airborne-Antara"
+Documentation = "https://github.com/AirBorneAI/Airborne-Antara#readme"
+Repository = "https://github.com/AirBorneAI/Airborne-Antara.git"
+Issues = "https://github.com/AirBorneAI/Airborne-Antara/issues"
 "Research Paper" = "https://doi.org/10.5281/zenodo.17839490"
 
 [tool.setuptools]

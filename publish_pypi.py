@@ -63,7 +63,7 @@ def clean_build_artifacts():
     """Clean dist/ and build/ directories"""
     print_header("Cleaning Build Artifacts")
     
-    dirs_to_clean = ["dist", "build", "antara.egg-info"]
+    dirs_to_clean = ["dist", "build", "antara.egg-info", "airborne_antara.egg-info"]
     
     for d in dirs_to_clean:
         path = Path(d)
