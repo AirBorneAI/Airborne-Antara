@@ -1,0 +1,15 @@
+# 🏛️ AirBorne-Antara Code Owners
+# Defines individuals and teams responsible for reviewing and approving PRs.
+
+# Default rule: All files require review by Core Engineering / Lead Maintainers
+*       @Ultron09 @AirBorneAI/code-reviewers @AirBorneAI/core-engineering
+
+# Critical Security & Governance Modules
+airborne_antara/governance.py   @Ultron09 @AirBorneAI/core-engineering
+airborne_antara/memory.py       @Ultron09 @AirBorneAI/core-engineering
+airborne_antara/core.py         @Ultron09 @AirBorneAI/core-engineering
+
+# CI/CD Workflows & Security Policies
+.github/workflows/              @Ultron09 @AirBorneAI/core-engineering
+SECURITY.md                     @Ultron09 @AirBorneAI/core-engineering
+GOVERNANCE.md                   @Ultron09 @AirBorneAI/core-engineering
