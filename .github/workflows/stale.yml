@@ -13,7 +13,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/stale@v9
+      - uses: actions/stale@v11
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           stale-issue-message: "⚡ **AirBorne Bot Notice:** This issue has been automatically marked as stale due to 60 days of inactivity. It will be closed in 7 days if no further activity occurs. Thank you for contributing to AirBorne-Antara!"
