@@ -9,7 +9,7 @@
 
 ## 🌌 1. Our Pledge
 
-We as members, contributors, maintainers, and leaders of the **AirBorne** and **AirBorne-HRS** open-source ecosystem pledge to make participation in our community a harassment-free, intellectually enriching, and collaborative experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, caste, color, religion, or sexual identity and orientation.
+We as members, contributors, maintainers, and leaders of the **AirBorne** and **AirBorneAI** open-source ecosystem pledge to make participation in our community a harassment-free, intellectually enriching, and collaborative experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, caste, color, religion, or sexual identity and orientation.
 
 We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and psychologically safe engineering community.
 
@@ -48,9 +48,9 @@ Our community culture is anchored by three core tenets:
 
 ## 📋 4. Scope & Jurisdiction
 
-This Code of Conduct applies within all project spaces managed by **AirBorne** and **AirBorne-HRS**, including:
+This Code of Conduct applies within all project spaces managed by **AirBorne** and **AirBorneAI**, including:
 
-- All public and private repositories under the `AirBorne-HRS` GitHub organization.
+- All public and private repositories under the `AirBorneAI` GitHub organization.
 - Issue trackers, pull request discussions, code reviews, and commit messages.
 - Official discussion forums, mailing lists, and community communication channels.
 - Representation of AirBorne at external conferences, hackathons, and technical symposiums.

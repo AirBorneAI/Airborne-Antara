@@ -1,6 +1,6 @@
 # 🏛️ AirBorne Open Source Governance & Maintainer Model
 
-**Organization:** AirBorne (`AirBorne-HRS`)  
+**Organization:** AirBorne (`AirBorneAI`)  
 **Effective Date:** 2026  
 **Leadership:** AirBorne Engineering Steering Committee  
 

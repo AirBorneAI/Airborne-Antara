@@ -1,6 +1,6 @@
 # 🤝 AirBorne Engineering Contribution Guidelines
 
-Welcome to the **AirBorne** and **AirBorne-HRS** engineering ecosystem! We are thrilled to have you contribute to our autonomous intelligence systems, machine learning architectures, and cloud platforms.
+Welcome to the **AirBorne** and **AirBorneAI** engineering ecosystem! We are thrilled to have you contribute to our autonomous intelligence systems, machine learning architectures, and cloud platforms.
 
 To maintain our standard of engineering excellence, please review these guidelines before submitting code.
 
@@ -26,7 +26,7 @@ To maintain our standard of engineering excellence, please review these guidelin
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/AirBorne-HRS/<repo-name>.git
+git clone https://github.com/AirBorneAI/<repo-name>.git
 cd <repo-name>
 
 # 2. Create and activate a virtual environment
@@ -137,7 +137,7 @@ Before opening your PR, verify:
 
 If you have architectural questions, need guidance, or wish to discuss large RFCs:
 
-- Open a **[GitHub Discussion](https://github.com/AirBorne-HRS/.github/discussions)**
+- Open a **[GitHub Discussion](https://github.com/AirBorneAI/.github/discussions)**
 - Email our engineering leads at **[talent@airbornehrs.in](mailto:talent@airbornehrs.in)**
 
 ---
