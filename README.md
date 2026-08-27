@@ -1,17 +1,20 @@
 <div align="center">
 <p align="center">
-  <img src="file:///C:/Users/surya/.gemini/antigravity/brain/3bf67da8-3020-49c5-b2b1-75059b957fe3/antara_v8_architecture_sentient_edition_1776825352703.png" width="800"/>
+  <img src="https://raw.githubusercontent.com/AirBorne-HRS/.github/main/profile/assets/banner.svg" width="100%" alt="AirBorne Antara Banner"/>
 </p>
-<h1>AIRBORNE-ANTARA!</h1>
+<h1>AIRBORNE-ANTARA</h1>
 <h3>Adaptive Neural Thinking Architecture For Recursive Autonomy</h3>
 
-<h3><b>V8.1 // CODENAME: "SENTIENT " EDITION (PRODUCTION READY)</b></h3>
+<h3><b>V8.1 // CODENAME: "SENTIENT" EDITION (PRODUCTION READY)</b></h3>
 
-[![Architecture](https://img.shields.io/badge/ARCH-COG_WRAPPER-000000.svg?style=for-the-badge&logo=pytorch)]()
-[![System](https://img.shields.io/badge/SYSTEM-SENTIENT_META_LEARNING-red.svg?style=for-the-badge)]()
-[![Status](https://img.shields.io/badge/Status-MISSION_CRITICAL-darkred.svg?style=for-the-badge)]()
+[![CI/CD Pipeline](https://github.com/AirBorne-HRS/Airborne-Antara/actions/workflows/ci.yml/badge.svg)](https://github.com/AirBorne-HRS/Airborne-Antara/actions/workflows/ci.yml)
+[![CodeQL Security](https://github.com/AirBorne-HRS/Airborne-Antara/actions/workflows/codeql.yml/badge.svg)](https://github.com/AirBorne-HRS/Airborne-Antara/actions/workflows/codeql.yml)
+[![Python 3.10 | 3.11 | 3.12](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-00FFA3.svg?style=flat-square&logo=python&logoColor=080E10)](https://python.org)
+[![PyTorch 2.x](https://img.shields.io/badge/PyTorch-2.x%20Ready-00D4FF.svg?style=flat-square&logo=pytorch&logoColor=080E10)](https://pytorch.org)
+[![Dependabot](https://img.shields.io/badge/Dependabot-Active-0B1F1C.svg?style=flat-square&logo=dependabot&logoColor=00FFA3)](https://github.com/AirBorne-HRS/Airborne-Antara/network/updates)
+[![Security Policy](https://img.shields.io/badge/Security-Enterprise_Grade-0F1416.svg?style=flat-square&logo=auth0&logoColor=00D4FF)](./SECURITY.md)
 
-> *"Intelligence is no longer just trained. It is synthesized through awareness ."*
+> *"Intelligence is no longer just trained. It is synthesized through awareness."*
 
 | **Autonomous Consciousness** | **Unified Memory** |
 |:---:|:---:|
