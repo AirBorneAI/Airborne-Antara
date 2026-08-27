@@ -3,7 +3,7 @@
 **Version 2.2 — Enterprise Standard**  
 **Effective Date:** January 1, 2026  
 **Governing Body:** AirBorne Open Source & Engineering Ethics Committee  
-**Contact:** [talent@airbornehrs.in](mailto:talent@airbornehrs.in)
+**Contact:** [suryaansh@airbornehrs.in](mailto:suryaansh@airbornehrs.in)
 
 ---
 
@@ -74,7 +74,7 @@ This Code of Conduct applies within all project spaces managed by **AirBorne** a
 If you experience or witness unacceptable behavior, or have any concerns regarding conduct in an AirBorne project, please report it immediately:
 
 ### 📧 How to Report
-- **Email:** Send a confidential report to **[talent@airbornehrs.in](mailto:talent@airbornehrs.in)**.
+- **Email:** Send a confidential report to **[suryaansh@airbornehrs.in](mailto:suryaansh@airbornehrs.in)**.
 - **Subject Line:** `[Conduct Report] Urgent: <Brief Summary>`
 
 ### 📄 What to Include

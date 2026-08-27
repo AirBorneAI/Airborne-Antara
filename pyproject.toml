@@ -11,7 +11,7 @@ requires-python = ">=3.8"
 # license = {text = "MIT"} # Deprecated table format
 license = "MIT"
 authors = [
-    {name = "AirborneHRS Team", email = "friday@airbornehrs.in"}
+    {name = "Suryaansh Prithvijit Singh", email = "suryaansh@airbornehrs.in"}
 ]
 keywords = [
     "meta-learning",
@@ -57,7 +57,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/AirBorneAI/Airborne-Antara"
+Homepage = "https://airbornehrs.in"
 Documentation = "https://github.com/AirBorneAI/Airborne-Antara#readme"
 Repository = "https://github.com/AirBorneAI/Airborne-Antara.git"
 Issues = "https://github.com/AirBorneAI/Airborne-Antara/issues"

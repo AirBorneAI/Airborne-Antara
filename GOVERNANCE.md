@@ -55,7 +55,7 @@ In the rare event of technical deadlock or procedural dispute:
 
 1. Technical disagreements are first addressed through empirical benchmarking and algorithmic comparison.
 2. If consensus cannot be reached, the Lead Architect of the respective repository will make the technical determination.
-3. Code of Conduct and community disputes are escalated directly to the Ethics Committee at **[talent@airbornehrs.in](mailto:talent@airbornehrs.in)**.
+3. Code of Conduct and community disputes are escalated directly to the Ethics Committee at **[suryaansh@airbornehrs.in](mailto:suryaansh@airbornehrs.in)**.
 
 ---
 

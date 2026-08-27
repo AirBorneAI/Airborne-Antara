@@ -31,7 +31,7 @@ We encourage **responsible disclosure** of security vulnerabilities.
 
 Please report vulnerabilities **privately** via email:
 
-**📧 talent@airbornehrs.in**
+**📧 suryaansh@airbornehrs.in**
 
 **Do NOT** open public GitHub issues, discussions, or pull requests for
 security-sensitive findings.

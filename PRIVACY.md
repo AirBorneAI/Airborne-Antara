@@ -2,7 +2,7 @@
 
 **Effective Date:** 2026  
 **Governing Standard:** ISO/IEC 27001 & Zero-Data Retention Principles  
-**Contact:** [talent@airbornehrs.in](mailto:talent@airbornehrs.in)
+**Contact:** [suryaansh@airbornehrs.in](mailto:suryaansh@airbornehrs.in)
 
 ---
 
@@ -30,5 +30,5 @@ At **AirBorne**, we design intelligence systems and HRMS platforms with **Privac
 
 ```
 AIRBORNE PVT. LTD. • DATA GOVERNANCE & PRIVACY
-CONFIDENTIALITY ASSURED • talent@airbornehrs.in
+CONFIDENTIALITY ASSURED • suryaansh@airbornehrs.in
 ```
