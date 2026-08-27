@@ -42,7 +42,19 @@ Our community culture is anchored by three core tenets:
 - **Public or Private Harassment:** Repeated unwanted contact, intimidation, stalking, or harassment across any GitHub repository, Discord server, or email channel.
 - **Doxxing & Privacy Invasions:** Publishing others' private information (such as physical or electronic addresses, phone numbers, or private code) without their explicit, written permission.
 - **Malicious Disruption:** Intentional degradation of CI/CD infrastructure, spamming issues or PR queues, or introducing backdoors/malicious payloads.
+- **Unverified / Automated Code Dumping:** Flooding pull requests with unchecked, hallucinated, or unverified AI-generated code ("vibe-coding spam") without local test validation and architectural justification.
 - **Unethical AI Manipulation:** Introducing harmful training data poisoned to generate hate speech, non-consensual imagery, or security exploits.
+
+---
+
+## 🤖 3.1 Technical Integrity & AI Contribution Standard
+
+As an AI-first engineering ecosystem, we welcome both human developers and autonomous AI coding agents. However, all contributors are bound by the **Engineering Integrity Pledge**:
+
+1. **Verification Obligation:** No contributor or agent may submit code that has not been executed and verified against a passing automated test suite.
+2. **Anti-Hallucination Protocol:** Claims regarding test passes, benchmark metrics, or API capabilities must be supported by empirical logs and reproducible tests. Falsifying test results or check outputs is considered a severe violation.
+3. **Attribution & Transparency:** Contributors utilizing LLMs or autonomous agents must disclose automated generation when appropriate and verify that generated code is free from security vulnerabilities, license violations, and phantom dependencies.
+
 
 ---
 

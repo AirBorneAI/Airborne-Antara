@@ -1,147 +1,130 @@
-# 🤝 AirBorne Engineering Contribution Guidelines
+# 🤝 AirBorne Engineering Contribution Guidelines & PR Rules
 
-Welcome to the **AirBorne** and **AirBorneAI** engineering ecosystem! We are thrilled to have you contribute to our autonomous intelligence systems, machine learning architectures, and cloud platforms.
+Welcome to the **AirBorne** and **AirBorneAI** engineering ecosystem! We are committed to building reliable, high-performance autonomous intelligence systems, adaptive neural architectures, and enterprise platforms.
 
-To maintain our standard of engineering excellence, please review these guidelines before submitting code.
-
----
-
-## 🏛️ 1. Core Principles
-
-- **Code is Read More than Written:** Strive for extreme clarity, modularity, and concise documentation.
-- **Defensive & Robust Design:** Handle edge cases, non-stationary distributions, and invalid inputs explicitly.
-- **Zero-Warning Tolerance:** Code submitted must be free of linter errors, deprecation warnings, and type violations.
-- **Test-Driven Rigor:** Every bug fix or new feature must be accompanied by comprehensive automated unit tests.
+To maintain uncompromising standards of engineering excellence and ensure that **no untested or arbitrary code is introduced**, all contributors (both human engineers and AI agents) must strictly adhere to these rules.
 
 ---
 
-## 🚀 2. Getting Started & Development Workflow
+## 🏛️ 1. Core Engineering Principles
 
-### Prerequisites
-- **Python:** Version `3.10`, `3.11`, or `3.12`
-- **Git:** Version `2.38+`
-- **Virtual Environment:** `venv` or `conda`
+- **Zero "Vibe-Coding" / Zero Unverified Code:** No code may be committed or merged without local test verification. AI agents and human contributors alike must execute unit tests and linters before submitting PRs.
+- **Defensive & Robust Design:** Handle non-stationary distributions, edge cases, dimension mismatches, and malformed inputs explicitly.
+- **Architectural Integrity:** Never introduce phantom dependencies, unreachable branches, dummy/mock logic in production paths, or undocumented side effects.
+- **Code is Read More than Written:** Maintain modular architecture, explicit type annotations, clear docstrings, and comprehensive test coverage.
+- **Zero-Warning Tolerance:** Submissions must pass all linters (`ruff`, `black`, `flake8`), type checkers, and security scans (`bandit`, `codeql`) with zero unaddressed warnings.
 
-### Setting up Your Local Environment
+---
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/AirBorneAI/<repo-name>.git
-cd <repo-name>
+## 🔒 2. Mandatory Quality Gates for Pull Requests
 
-# 2. Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\Activate.ps1
+Every Pull Request must satisfy the following checklist before review and merge:
 
-# 3. Upgrade pip and install development dependencies
-pip install --upgrade pip
-pip install -r requirements.txt
-pip install -e .[dev]
-```
+### Gate 1: Problem Definition & Justification
+- Every PR must solve an identified issue, implement a validated feature, or optimize a measured bottleneck.
+- The PR description must clearly explain **What** changed, **Why** it was needed, and **How** it was verified.
+
+### Gate 2: Automated Unit Testing
+- **100% Behavioral Coverage:** Every bug fix must include a regression test that fails without the fix and passes with it.
+- **Feature Tests:** Every new module, class, or method must include corresponding unit tests in `tests/`.
+- All tests must pass locally:
+  ```bash
+  pytest -v
+  ```
+
+### Gate 3: Code Formatting & Linting
+- Format code using Black and verify with Ruff:
+  ```bash
+  black --check airborne_antara tests
+  ruff check airborne_antara tests
+  flake8 airborne_antara tests
+  ```
+
+### Gate 4: Submodule & Git Tree Integrity
+- Submodule pointers (such as `NeurIPS` and `July_2026`) must have valid mappings in `.gitmodules`.
+- No stray temporary files, cache files (`.pyc`, `__pycache__`), or personal environment credentials may be tracked.
 
 ---
 
 ## 🌿 3. Branching & Commit Conventions
 
-We follow a structured branching strategy based on **Conventional Commits**:
+We strictly follow the **Conventional Commits** specification:
 
-### Branch Naming Convention
+### Branch Naming Scheme
 
-| Prefix | Use Case | Example |
+| Type | Description | Example |
 | :--- | :--- | :--- |
-| `feat/` | New features or algorithmic capabilities | `feat/contrastive-decoding` |
-| `fix/` | Bug fixes and runtime repairs | `fix/kv-cache-overflow` |
-| `perf/` | Latency, throughput, or memory optimizations | `perf/vectorized-attention` |
-| `docs/` | Documentation, guides, or README updates | `docs/access-control-matrix` |
-| `ci/` | CI/CD pipelines, workflows, or bots | `ci/codeql-integration` |
-| `refactor/` | Code refactoring without behavioral changes | `refactor/modular-evaluator` |
+| `feat/` | New features or capabilities | `feat/holographic-saliency-pooling` |
+| `fix/` | Bug fixes and runtime repairs | `fix/submodule-mapping-neurips` |
+| `perf/` | Latency or memory optimization | `perf/vectorized-moe-routing` |
+| `docs/` | Documentation or guide updates | `docs/governance-policy-spec` |
+| `ci/` | CI/CD pipelines, workflows, or tooling | `ci/test-matrix-python312` |
+| `refactor/` | Structural code refactoring | `refactor/modular-memory-vault` |
 
-### Commit Message Standard
+### Commit Message Structure
 
-Commit messages must adhere to the Conventional Commits specification:
+```text
+<type>(<optional scope>): <short description in imperative mood>
 
-```
-<type>(<optional scope>): <subject line in imperative mood>
+[optional detailed body explaining rationale and approach]
 
-[optional body explaining context and rationale]
-
-[optional footer with issue reference or Co-authored-by trailer]
+[optional footer(s), e.g. Fixes #123, Co-authored-by: Name <email>]
 ```
 
 **Examples:**
-- `feat(memory): implement universal tensor projection for conv2d layers`
-- `fix(attention): resolve off-by-one indexing in rotary embeddings (#42)`
-- `docs(security): update disclosure response SLA in SECURITY.md`
+- `feat(memory): add universal tensor projection for conv and attention layers`
+- `fix(core): guard against None gradients during dynamic consolidation (#42)`
+- `docs(presets): document real_time and high_throughput configurations`
 
 ---
 
-## 🎨 4. Code Style & Quality Standards
+## 🤖 4. AI Agent Contribution Protocol
 
-All Python code must strictly pass our automated linting and formatting suite:
+AI agents contributing to this codebase are bound by the following mandatory operational protocol:
+
+1. **Pre-Implementation Research:** Read existing module contracts, `Mandate.md`, and relevant test suites before editing files.
+2. **No Hallucinated Functions / Attributes:** Verify that all imported functions, methods, and tensor operations exist in the current codebase or specified dependencies.
+3. **Mandatory Local Execution:** Run the test suite (`pytest`) and verify that all test assertions pass before proposing changes.
+4. **Co-Authorship Attribution:** When finishing or co-authoring work started by another contributor, include the `Co-authored-by: Name <email>` trailer in commit messages.
+5. **No Mocking of Production Paths:** Never replace actual mathematical transformations with no-op mocks in production modules.
+
+---
+
+## 🚀 5. Local Development Workflow
 
 ```bash
-# Run Ruff fast linter
-ruff check . --fix
+# 1. Clone with submodules
+git clone --recurse-submodules https://github.com/AirBorneAI/Airborne-Antara.git
+cd Airborne-Antara
 
-# Format code with Black
-black . --check
+# 2. Setup virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Type checking with MyPy
-mypy . --ignore-missing-imports
+# 3. Install in editable mode with development dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install -e .[dev]
+
+# 4. Run tests before creating a branch
+pytest -v
+
+# 5. Create a feature branch
+git checkout -b feat/my-improvement
+
+# 6. Verify changes locally
+pytest -v
+black --check airborne_antara tests
+ruff check airborne_antara tests
+
+# 7. Push and open PR
+git push origin feat/my-improvement
 ```
-
-### Formatting Guidelines
-- Line length limit: **100 characters** (soft limit 120 for mathematical formulas).
-- All public functions, classes, and methods must include Google-style docstrings.
-- Avoid unnecessary external dependencies; prefer standard library and core framework primitives.
 
 ---
 
-## 🧪 5. Testing & Verification
+## 🛡️ 6. PR Review & Merge Policy
 
-No pull request will be merged without passing unit tests.
-
-```bash
-# Run complete test suite with coverage
-pytest --cov=. --cov-report=term-missing
-
-# Run quick unit tests
-python -m unittest discover -s tests
-```
-
-### Test Requirements
-- **Unit Tests:** Must test both happy paths and explicit boundary failure cases.
-- **Determinism:** Tests must be deterministic and must not rely on unseeded random states or external internet connectivity.
-
----
-
-## 📋 6. Pull Request (PR) Checklist & Review Lifecycle
-
-Before opening your PR, verify:
-
-- [ ] Branch is rebased onto the latest `main` branch.
-- [ ] PR title follows Conventional Commits format (`feat:`, `fix:`, etc.).
-- [ ] All automated tests pass locally.
-- [ ] Linters (`ruff`, `black`, `mypy`) execute cleanly with 0 errors.
-- [ ] Documentation has been updated to reflect the new feature or fix.
-- [ ] Sensitive secrets, credentials, or personal keys are not committed.
-
-### Review Lifecycle
-1. **Automated CI Validation:** The AirBorne CI/CD gauntlet will validate formatting, security, and test matrices.
-2. **Peer Review:** A maintainer will conduct a thorough review within **2 business days**.
-3. **Merge:** Merges are performed via Squash & Merge to ensure a clean, linear git history.
-
----
-
-## 💬 7. Questions & Contact
-
-If you have architectural questions, need guidance, or wish to discuss large RFCs:
-
-- Open a **[GitHub Discussion](https://github.com/AirBorneAI/.github/discussions)**
-- Email our engineering leads at **[talent@airbornehrs.in](mailto:talent@airbornehrs.in)**
-
----
-
-```
-AIRBORNE PVT. LTD. • BUILT FOR THE FUTURE. ENGINEERED TO LEAD.
-```
+1. **Automated Status Checks:** All GitHub Actions workflows (`⚡ AirBorne-Antara CI/CD Pipeline`, `🛡️ CodeQL Advanced Security Analysis`, and `📋 PR Semantic Title & Quality Gate`) must be green.
+2. **Maintainer Approval:** Every PR requires code review approval from an AirBorne engineering lead.
+3. **Squash or Rebase Merge:** Branch history must be clean, linear, and meaningful.

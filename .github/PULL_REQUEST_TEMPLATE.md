@@ -43,7 +43,8 @@
 - [ ] Unit tests added/updated in `tests/`
 - [ ] 100% test suite passing locally (`pytest -v`)
 - [ ] Linter check passing (`ruff check .` & `black --check .`)
-- [ ] Type check passing (`mypy .`)
+- [ ] Zero unverified / hallucinated code: all imported symbols exist and logic is tested
+- [ ] Git submodule mappings verified in `.gitmodules`
 
 ---
 
