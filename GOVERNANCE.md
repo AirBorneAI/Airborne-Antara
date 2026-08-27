@@ -23,7 +23,22 @@ The **AirBorne** open-source ecosystem is managed under a meritocratic and trans
 
 ---
 
-## 📜 3. RFC (Request for Comments) Process
+## 🛡️ 3. Organization Teams & Permission Scopes
+
+The organization is partitioned into 6 specialized engineering teams:
+
+| Team | GitHub Team Slug | Default Repo Permission | Core Focus & Governance |
+| :--- | :--- | :---: | :--- |
+| **Core Engineering** | [`@AirBorneAI/core-engineering`](https://github.com/orgs/AirBorneAI/teams/core-engineering) | `Admin` | Primary architecture, framework kernels, and release tagging. |
+| **Code Reviewers** | [`@AirBorneAI/code-reviewers`](https://github.com/orgs/AirBorneAI/teams/code-reviewers) | `Maintain` | Pull request code review gates, design verification, and merge sign-offs. |
+| **Internal Contributors** | [`@AirBorneAI/internal-contributors`](https://github.com/orgs/AirBorneAI/teams/internal-contributors) | `Write (Push)` | Full-time staff active development across squad repositories. |
+| **External Contributors** | [`@AirBorneAI/external-contributors`](https://github.com/orgs/AirBorneAI/teams/external-contributors) | `Triage / Read` | Open-source partners, contractors, and community maintainers. |
+| **Red Team** | [`@AirBorneAI/red-team-offensive-security`](https://github.com/orgs/AirBorneAI/teams/red-team-offensive-security) | `Triage + Advisory` | Adversarial AI testing, model vulnerability exploitation, penetration testing. |
+| **Blue Team** | [`@AirBorneAI/blue-team-defensive-security-psirt`](https://github.com/orgs/AirBorneAI/teams/blue-team-defensive-security-psirt) | `Admin` | Zero-trust infrastructure, IAM governance, cryptographic keys, and PSIRT. |
+
+---
+
+## 📜 4. RFC (Request for Comments) Process
 
 Major architectural changes, new framework modules, or breaking API modifications must undergo our formal RFC process:
 
