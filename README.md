@@ -1,226 +1,95 @@
-<div align="center">
+# Antara: a feedback-driven PyTorch wrapper
 
-# ⚡ AIRBORNE-ANTARA
-### Production Meta-Learning & Continual Optimization Framework for PyTorch
+`Antara(model)` adds explicit online learning, bounded experience replay, and continual-learning memory to an existing `torch.nn.Module`.
 
-[![CI/CD Pipeline](https://github.com/AirBorneAI/Airborne-Antara/actions/workflows/ci.yml/badge.svg)](https://github.com/AirBorneAI/Airborne-Antara/actions/workflows/ci.yml)
-[![CodeQL Security](https://github.com/AirBorneAI/Airborne-Antara/actions/workflows/codeql.yml/badge.svg)](https://github.com/AirBorneAI/Airborne-Antara/actions/workflows/codeql.yml)
-[![Python 3.10 | 3.11 | 3.12](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB.svg?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![PyTorch 2.x](https://img.shields.io/badge/PyTorch-2.x%20Ready-EE4C2C.svg?style=flat-square&logo=pytorch&logoColor=white)](https://pytorch.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17839490.svg)](https://doi.org/10.5281/zenodo.17839490)
+The model still needs a learning signal: labels, a custom objective, or a loss returned by the model. Inference alone cannot establish whether a prediction was correct.
 
-<br/>
+## One-line wrapping
 
-```
-  ┌────────────────────────────────────────────────────────────────────────────┐
-  │                                                                            │
-  │     █████╗ ███╗   ██╗████████╗ █████╗ ██████╗  █████╗                      │
-  │    ██╔══██╗████╗  ██║╚══██╔══╝██╔══██╗██╔══██╗██╔══██╗                     │
-  │    ███████║██╔██╗ ██║   ██║   ███████║██████╔╝███████║  AIRBORNE-ANTARA    │
-  │    ██╔══██║██║╚██╗██║   ██║   ██╔══██║██╔══██╗██╔══██║  v0.2.0             │
-  │    ██║  ██║██║ ╚████║   ██║   ██║  ██║██║  ██║██║  ██║                     │
-  │    ╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝                     │
-  │                                                                            │
-  └────────────────────────────────────────────────────────────────────────────┘
+```python
+from airborne_antara import Antara
+
+model = Antara(your_pytorch_model)
+output = model(inputs)                   # original forward output and structure
+metrics = model.learn(inputs, targets=labels)
+prediction = model.predict(inputs)       # eval + no_grad; restores previous modes
 ```
 
-<p align="center">
-  <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM25uN3JsNXpvejc0a3B3NXBucGU4NGd2eWJlYTBwc2xqdWdpejcyNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/foecxPebqfDx5gxQCU/giphy.gif" width="720" alt="Antara Recursive Global Workspace Animation"/>
-</p>
-
-**AirBorne-Antara** is a modular PyTorch framework that turns standard deep learning models into **continually self-improving systems**. It provides parameter-protective memory, adaptive meta-optimization, sparse MoE routing, and runtime neural health telemetry without requiring model rewrites.
-
-[Quickstart](#-quickstart) • [Architecture](#-architecture) • [Key Capabilities](#-key-capabilities) • [Presets](#-production-presets) • [CLI Telemetry](#-cli--telemetry) • [Documentation](#-documentation)
-
-</div>
-
----
-
-## 💡 Why Airborne-Antara?
-
-Deploying deep learning models to dynamic production environments faces two fundamental bottlenecks:
-
-1. **Catastrophic Forgetting:** Fine-tuning on new data destroys performance on previously learned distributions.
-2. **Static Hyperparameters:** Fixed learning rates and standard SGD/Adam fail to adapt to distribution shift, gradient saturation, and non-stationary loss landscapes.
-
-**Antara wraps any existing `nn.Module` with a non-invasive adaptation layer** that continually consolidates critical weights, balances learning dynamics in real time, and monitors neural health in production.
-
----
-
-## 🏗️ Architecture
-
-```mermaid
-graph TD
-    Input[Input Stream: X] --> Perception[Perception Gateway & Modality Encoders]
-    Perception --> Host[Host Model / Backbone: nn.Module]
-    
-    subgraph Antara Adaptive Manifold
-        Host --> Workspace[Recursive Global Workspace: Multi-Step Deliberation]
-        Workspace --> MetaCtrl[Meta-Controller: Online Gradient & Curvature Analysis]
-        MetaCtrl --> Memory[Unified Memory: EWC + Synaptic Intelligence + Universal OGD]
-        Memory --> Health[Neural Health Monitor: Dead Neuron Revival & Saturation Check]
-    end
-    
-    Workspace --> Output[Output: Predictions & Confidence Metrics]
-    Health --> Telemetry[Real-Time Telemetry Dashboard]
-```
-
----
-
-## ⚡ Key Capabilities
-
-### 1. Unified Continual Memory (Zero Catastrophic Forgetting)
-Combines **Elastic Weight Consolidation (EWC)**, **Synaptic Intelligence (SI)**, and **Orthogonal Gradient Descent (OGD)** into a unified parameter importance manifold.
-- Computes parameter Fisher information and path integrals online.
-- Projects new task gradients orthogonally to historical subspace.
-- Extends protection across linear, convolutional, and attention layers via **Universal Tensor Projection**.
-
-### 2. Adaptive Online Meta-Controller
-Dynamically modulates optimization parameters during training and inference:
-- Real-time learning rate modulation based on loss surface curvature.
-- Dynamic gradient centralization and gradient norm clipping.
-- Regime-aware loss weighting (Exploration vs. Exploitation).
-
-### 3. Sparse Mixture-of-Experts (MoE) Substrate
-Drop-in routing layer with load-balanced expert dispatching:
-- Dynamically routes inputs to top-$k$ expert sub-networks.
-- MoE-aware gradient isolation prevents expert collapse.
-- Automatic routing entropy optimization.
-
-### 4. Recursive Global Workspace (Multi-Step Reasoning)
-Enables multi-step deliberative passes over complex samples:
-- Dynamic internal reasoning depth based on sample entropy.
-- Step-by-step thought trace generation with confidence scoring.
-- Early exit mechanism for low-entropy inputs to minimize inference latency.
-
-### 5. Production Invariant & Health Monitoring
-Live diagnostics tracking substrate stability:
-- Dead neuron detection with surgical parameter rejuvenation.
-- Activation saturation and vanishing/exploding gradient detection.
-- Real-time surprise and novelty metric emission.
-
----
-
-## 🚀 Quickstart
-
-### Installation
-
-```bash
-# Install core package
-pip install airborne-antara
-
-# Or install with development dependencies
-pip install "airborne-antara[dev]"
-```
-
-### 3-Line Integration Example
+Complete example:
 
 ```python
 import torch
-import torch.nn as nn
-from airborne_antara import AdaptiveFramework, PRESETS
+from airborne_antara import Antara
 
-# 1. Define your standard PyTorch model
-model = nn.Sequential(
-    nn.Linear(128, 256),
-    nn.ReLU(),
-    nn.Linear(256, 10)
-)
+model = Antara(torch.nn.Linear(8, 3))
+x = torch.randn(16, 8)
+y = torch.randint(3, (16,))
+model.learn(x, targets=y)
+model.on_task_complete(0)                # optional explicit task boundary
+model.save_checkpoint("antara.pt")
 
-# 2. Wrap with Antara using a production preset
-agent = AdaptiveFramework(model, config=PRESETS.production())
-
-# 3. Train with automatic memory protection and meta-adaptation
-inputs = torch.randn(32, 128)
-targets = torch.randint(0, 10, (32,))
-
-# Executes forward pass, loss computation, memory consolidation & telemetry
-metrics = agent.train_step(inputs, target_data=targets)
-
-print(f"Loss: {metrics['loss']:.4f} | Regime: {metrics['regime']}")
+restored = Antara(torch.nn.Linear(8, 3))
+restored.load_checkpoint("antara.pt")
 ```
 
----
+Install with `pip install -e .` from this checkout; development tools use `pip install -e '.[dev]'`. Requires Python 3.10+ and PyTorch 2.3+. The root `requirements.txt` includes historical demo dependencies and is not required for the wrapper.
 
-## 🎛️ Production Presets
+## Inputs, outputs, and objectives
 
-Antara provides pre-validated configurations tailored for specific deployment scenarios:
-
-| Preset | Target Environment | Key Features Enabled | Memory Overhead |
-| :--- | :--- | :--- | :---: |
-| `PRESETS.production()` | Standard Production APIs | EWC + SI + Meta-Controller + Health Monitor | Low (~3%) |
-| `PRESETS.fast()` | Low-Latency / Real-Time Edge | Streamlined OGD + Fast Routing + No Deliberation | Minimal (<1%) |
-| `PRESETS.accuracy_focus()` | High-Stakes Decision Systems | Full Global Workspace + Top-4 MoE + Deep EWC | Moderate (~8%) |
-| `PRESETS.memory_efficient()` | Edge / Embedded Devices | Quantized Importance Vectors + Prioritized Replay | Ultra-Low (<0.5%) |
-| `PRESETS.research()` | Experimental & Benchmarking | Full Telemetry + JEPA World Model + All Hooks | Comprehensive |
+- Positional and keyword inputs are forwarded. Forward preserves the original output structure. Learning supports tensor, tuple, dictionary, and objects exposing `logits` or `loss`.
+- Class-index targets use cross entropy; same-shape floating targets use mean squared error. Unambiguous token-last and channels-first classification layouts are supported.
+- Other tasks use `loss_fn(output, target)`, returning one finite scalar tensor. Without targets, learning requires that callback or an output containing a scalar loss.
+- Replay requires batch-first tensors with consistent batch sizes. It stores individual examples as detached CPU copies without resizing them. Set `feedback_buffer_size=0` for other layouts and supply a suitable objective.
+- Ordinary `model(...)` follows PyTorch mode/autograd semantics. Use `predict` for evaluation. Custom model randomness and stateful behavior remain the model's responsibility.
 
 ```python
-from airborne_antara import PRESETS
-
-# Load preset or mix-and-match configurations
-config = PRESETS.fast().merge(PRESETS.production())
+model = Antara(backbone, loss_fn=my_loss, feedback_buffer_size=1024)
+model.learn(images, attention_mask=mask, targets=labels, task_id=0)
 ```
 
----
+Defaults use AdamW, uniform reservoir replay, and Synaptic Intelligence. Each learning call takes one update on new feedback and, when memory is available, one replay update. Task IDs group replay and consolidation; predict does not require them.
 
-## 🖥️ CLI & Telemetry
+Replay stores actual input examples: choose capacity for their size and sensitivity. No universal memory or speed multiplier is claimed.
 
-Inspect model health, memory saturation, and expert utilization directly from your terminal:
+## Experimental components
+
+`AdaptiveFramework` and presets remain for research compatibility. Its historical forward returns diagnostics alongside model output; use Antara for the model-preserving interface.
+
+MoE copies, adapters, introspection, world prediction, Reptile, Lookahead, gradient noise, and cognitive telemetry are optional and disabled by default in `Antara(model)`. Presets can enable them and substantially change compute and behavior.
+
+OGD currently projects **Linear weight gradients** using observed input subspaces. Adam's coordinate scaling and momentum prevent this from guaranteeing orthogonal parameter updates or zero forgetting. Protected-coordinate restoration preserves selected parameters, not every prediction.
+
+World prediction requires `(predictions, features)` outputs. Three-dimensional features mean `[batch, time, feature]`. Two-dimensional cross-batch prediction requires `temporal_world_model=True` and aligned trajectories; shuffled batches are not temporal data.
+
+The module named “consciousness” remains experimental telemetry. Its workspace has no validated task-learning objective in this wrapper. It is not evidence of consciousness, reasoning ability, or AGI.
+
+## Checkpoints
+
+Version 2 checkpoints are atomic, self-contained files containing model/auxiliary weights, optimizer/scaler state, replay, importance/anchors/masks, supported controller state, counters, and RNG state. Reconstruct the same model/configuration before loading. Supply custom loss callbacks again with the same semantics.
+
+Tests verify an identical next CPU update after reload, including replay and protected coordinates. Cross-device or nondeterministic GPU execution need not be bitwise identical.
+
+Exact resume currently rejects MoE, cognitive telemetry, perception, graph memory, health/performance editing, learned optimizers, and compiled models because their extra state lacks a complete resume contract. Legacy checkpoints support explicit weights-only migration, not exact training continuation. Only load files you trust.
+
+## Evidence and limits
 
 ```bash
-# Run interactive telemetry dashboard & self-test demo
-python -m airborne_antara --demo
-
-# Inspect system status and active configuration
-python -m airborne_antara --status
+python -m examples.continual_learning --output results/continual_smoke.json
 ```
 
----
+This experiment uses separate train/test examples, a global four-class head, three fixed seeds, and no task ID at inference. It compares fine-tuning, replay, and replay plus SI. Replay takes additional optimizer steps. This is a synthetic correctness check, not a compute-matched or state-of-the-art benchmark.
 
-## 📊 Benchmark Results
+Historical outputs do not certify this revision. Earlier headline accuracy and overhead claims have been removed because this checkout does not establish them. Split-CIFAR-100, multiple seeds, matched budgets, ablations, and held-out real data are still required before a competitive claim.
 
-Evaluated across split-CIFAR-100, Permuted MNIST, and Continual Domain Adaptation benchmarks:
+See [repair notes](docs/REPAIR.md) and the [architecture contract](Mandate.md).
 
-| Method | Accuracy (Task 1 Retention) | Backward Transfer (BWT) | Training Overhead |
-| :--- | :---: | :---: | :---: |
-| Naive Fine-Tuning | 18.4% | -0.62 | Baseline (1.0x) |
-| Standard EWC | 71.2% | -0.19 | 1.15x |
-| Synaptic Intelligence | 74.8% | -0.15 | 1.12x |
-| **AirBorne-Antara (Unified)** | **92.6%** | **-0.02** | **1.08x** |
+## Verification
 
----
-
-## 📂 Documentation
-
-- 📘 [Getting Started Guide](docs/guides/GETTING_STARTED.md)
-- 📐 [Architecture Deep Dive](docs/ARCHITECTURE.md)
-- 📖 [Full API Reference](docs/guides/API.md)
-- 🎛️ [Presets Guide & Visual Index](docs/guides/PRESETS_INDEX.md)
-- 🔒 [Security Policy](SECURITY.md)
-- 🤝 [Contributing Guidelines](CONTRIBUTING.md)
-- 📜 [Code of Conduct](CODE_OF_CONDUCT.md)
-
----
-
-## 📄 Citation
-
-If you use AirBorne-Antara in your research or production systems, please cite:
-
-```bibtex
-@software{singh2026airborne_antara,
-  author       = {Suryaansh Prithvijit Singh and AirBorne Engineering Team},
-  title        = {AirBorne-Antara: Adaptive Neural Thinking Architecture for Recursive Autonomy},
-  year         = {2026},
-  publisher    = {Zenodo},
-  version      = {v0.2.0},
-  doi          = {10.5281/zenodo.17839490},
-  url          = {https://github.com/AirBorneAI/Airborne-Antara}
-}
+```bash
+pytest -v
+black --check airborne_antara tests
+ruff check airborne_antara tests
+python -m build --sdist --wheel
 ```
 
----
-
-<div align="center">
-  <sub>Built with precision by the AirBorne Engineering Team • Distributed under the MIT License</sub>
-</div>
+CI enforces tests, formatting, and linting. Security scanning is explicitly advisory. Research submodules are pinned separately and retain historical protocols.

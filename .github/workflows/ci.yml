@@ -32,14 +32,15 @@ jobs:
 
       - name: 🔍 Run Ruff Linter
         run: |
-          ruff check airborne_antara --ignore E501,F401,F841 || true
+          ruff check airborne_antara tests
 
       - name: 🔍 Check Code Formatting (Black)
         run: |
-          black --check --diff airborne_antara || true
+          black --check --diff airborne_antara tests
 
   security-scan:
     name: 🛡️ Security Vulnerability Scan (Bandit & Pip-Audit)
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - name: 📥 Checkout Repository
@@ -58,11 +59,11 @@ jobs:
 
       - name: 🔒 Run Bandit SAST Scan
         run: |
-          bandit -r airborne_antara -ll -ii || true
+          bandit -r airborne_antara -ll -ii
 
       - name: 🔒 Run Dependency Vulnerability Audit
         run: |
-          pip-audit -r requirements.txt || true
+          pip-audit -r requirements.txt
 
   test-matrix:
     name: 🧪 Test Suite (Python ${{ matrix.python-version }} on ${{ matrix.os }})
@@ -88,8 +89,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt
-          pip install pytest pytest-cov build
+          pip install -e '.[dev]'
 
       - name: ⚙️ Install Package in Editable Mode
         run: |
@@ -98,7 +98,7 @@ jobs:
       - name: 🔬 Run Unit Tests & Imports Verification
         run: |
           python -c "import airborne_antara; print('AirBorne-Antara initialized successfully:', getattr(airborne_antara, '__version__', 'v8.1'))"
-          pytest -v || true
+          pytest -v
 
       - name: 📦 Test Package Build Artifacts (sdist & wheel)
         run: |

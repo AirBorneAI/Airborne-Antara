@@ -1,18 +1,20 @@
-import pytest
-from airborne_antara.presets import PRESETS, load_preset, list_presets, compare_presets
-from airborne_antara.validation import ConfigValidator, validate_config
+from airborne_antara.presets import PRESETS, load_preset, list_presets
+from airborne_antara.validation import validate_config
+
 
 def test_list_presets():
     presets = list_presets()
-    assert isinstance(presets, list)
+    assert isinstance(presets, dict)
     assert "production" in presets
     assert "fast" in presets
     assert "balanced" in presets
+
 
 def test_load_preset():
     prod = load_preset("production")
     assert prod is not None
     assert prod.learning_rate > 0
+
 
 def test_preset_merge():
     fast = PRESETS.fast()
@@ -20,7 +22,8 @@ def test_preset_merge():
     merged = fast.merge(prod)
     assert merged is not None
 
+
 def test_validate_config():
-    valid, errors = validate_config(PRESETS.production())
+    valid, errors, _ = validate_config(PRESETS.production(), raise_on_error=False)
     assert valid is True
     assert len(errors) == 0

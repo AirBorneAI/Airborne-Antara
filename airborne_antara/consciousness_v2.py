@@ -3,7 +3,7 @@ Enhanced Consciousness Module: System 2 Thinking (Universal v1.1.1 "Sentient")
 =============================================================================
 
 This module implements a sophisticated consciousness and self-awareness system
-that mimics human-like introspection, emotional states, meta-cognition, and 
+that mimics human-like introspection, emotional states, meta-cognition, and
 adaptive learning strategies.
 
 V8.0 "SENTIENT" FEATURES:
@@ -26,7 +26,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import logging
-from typing import Dict, List, Optional, Tuple, Any, Union
+from typing import Dict, List, Optional, Tuple, Any
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
@@ -36,18 +36,20 @@ import random
 
 class EmotionalState(Enum):
     """Emotional states that drive learning behavior."""
-    CONFIDENT = "confident"      # High competence, low uncertainty
-    ANXIOUS = "anxious"          # High uncertainty, low competence
-    CURIOUS = "curious"          # High novelty, high uncertainty
-    BORED = "bored"              # Low novelty, high competence
-    FRUSTRATED = "frustrated"    # High effort, low progress
-    SATISFIED = "satisfied"      # Making progress, low error
+
+    CONFIDENT = "confident"  # High competence, low uncertainty
+    ANXIOUS = "anxious"  # High uncertainty, low competence
+    CURIOUS = "curious"  # High novelty, high uncertainty
+    BORED = "bored"  # Low novelty, high competence
+    FRUSTRATED = "frustrated"  # High effort, low progress
+    SATISFIED = "satisfied"  # Making progress, low error
     OVERWHELMED = "overwhelmed"  # High uncertainty, high task complexity
 
 
 @dataclass
 class MemoryEpisode:
     """An episodic memory entry - a specific experience the model learned from."""
+
     timestamp: int
     input_hash: int
     error: float
@@ -58,26 +60,33 @@ class MemoryEpisode:
     x: Optional[torch.Tensor] = None
     y: Optional[torch.Tensor] = None
     features: Optional[torch.Tensor] = None
-    
-    def relevance_score(self, current_surprise: float, current_error: float, current_features: Optional[torch.Tensor] = None) -> float:
+
+    def relevance_score(
+        self,
+        current_surprise: float,
+        current_error: float,
+        current_features: Optional[torch.Tensor] = None,
+    ) -> float:
         """How relevant is this past experience to the current situation?"""
         # Similar situations are more relevant
         # Added epsilon to prevent division by zero
         surprise_sim = 1.0 / (1.0 + abs(current_surprise - self.surprise) + 1e-6)
         error_sim = 1.0 / (1.0 + abs(current_error - self.error) + 1e-6)
-        
+
         content_sim = 0.0
         if current_features is not None and self.features is not None:
             # Cosine similarity for content (Task Context)
             # Use MEAN feature vector to be robust to batch order/size
             v1 = current_features.float().mean(dim=0).view(-1)
             v2 = self.features.float().mean(dim=0).view(-1)
-            
+
             if v1.shape == v2.shape:
-                content_sim = F.cosine_similarity(v1.unsqueeze(0), v2.unsqueeze(0)).item()
+                content_sim = F.cosine_similarity(
+                    v1.unsqueeze(0), v2.unsqueeze(0)
+                ).item()
                 # Normalize to 0-1 range
                 content_sim = (content_sim + 1) / 2
-        
+
         # Weighted sum: Content is KING for few-shot learning
         return 0.7 * content_sim + 0.2 * surprise_sim + 0.1 * error_sim
 
@@ -86,27 +95,27 @@ class EmotionalSystem:
     """
     Simulates emotional states that influence learning.
     """
-    
-    def __init__(self,
-                 confidence_weight: float = 0.4,
-                 uncertainty_weight: float = 0.3,
-                 novelty_weight: float = 0.2,
-                 progress_weight: float = 0.1):
+
+    def __init__(
+        self,
+        confidence_weight: float = 0.4,
+        uncertainty_weight: float = 0.3,
+        novelty_weight: float = 0.2,
+        progress_weight: float = 0.1,
+    ):
         self.confidence_weight = confidence_weight
         self.uncertainty_weight = uncertainty_weight
         self.novelty_weight = novelty_weight
         self.progress_weight = progress_weight
-        
+
         self.emotional_history = deque(maxlen=100)
-        self.last_loss = float('inf')
+        self.last_loss = float("inf")
         self.consecutive_improvements = 0
         self.consecutive_regressions = 0
-        
-    def compute_emotional_state(self,
-                                confidence: float,
-                                uncertainty: float,
-                                novelty: float,
-                                current_loss: float) -> Tuple[EmotionalState, Dict[str, float]]:
+
+    def compute_emotional_state(
+        self, confidence: float, uncertainty: float, novelty: float, current_loss: float
+    ) -> Tuple[EmotionalState, Dict[str, float]]:
         """
         Compute emotional state based on current metrics.
         """
@@ -117,25 +126,27 @@ class EmotionalSystem:
         else:
             self.consecutive_regressions += 1
             self.consecutive_improvements = 0
-        
+
         self.last_loss = current_loss
-        
+
         # Guard against NaNs in inputs (CRITICAL FIX)
         confidence = 0.0 if math.isnan(confidence) else confidence
         uncertainty = 1.0 if math.isnan(uncertainty) else uncertainty
         novelty = 0.0 if math.isnan(novelty) else novelty
-        
+
         # Compute emotion scores
         emotions = {
             EmotionalState.CONFIDENT: confidence * (1 - uncertainty) * (1 - novelty),
             EmotionalState.ANXIOUS: uncertainty * (1 - confidence),
             EmotionalState.CURIOUS: novelty * uncertainty,
             EmotionalState.BORED: (1 - novelty) * confidence,
-            EmotionalState.FRUSTRATED: float(self.consecutive_regressions > 5) * (1 - confidence),
-            EmotionalState.SATISFIED: float(self.consecutive_improvements > 3) * (1 - uncertainty),
+            EmotionalState.FRUSTRATED: float(self.consecutive_regressions > 5)
+            * (1 - confidence),
+            EmotionalState.SATISFIED: float(self.consecutive_improvements > 3)
+            * (1 - uncertainty),
             EmotionalState.OVERWHELMED: uncertainty * novelty * (1 - confidence),
         }
-        
+
         # Safe dominant determination
         try:
             dominant = max(emotions.items(), key=lambda x: x[1])[0]
@@ -145,14 +156,13 @@ class EmotionalSystem:
         # Normalize scores safely
         total_score = sum(emotions.values()) + 1e-6
         emotion_scores = {
-            state.value: float(score / total_score)
-            for state, score in emotions.items()
+            state.value: float(score / total_score) for state, score in emotions.items()
         }
-        
+
         self.emotional_history.append(dominant)
-        
+
         return dominant, emotion_scores
-    
+
     def get_learning_multiplier(self, emotion: EmotionalState) -> float:
         """Different emotions affect learning rate."""
         multipliers = {
@@ -171,22 +181,24 @@ class MetaCognition:
     """
     Thinking about thinking - understanding one's own learning process.
     """
-    
+
     def __init__(self, window_size: int = 100):
         self.window_size = window_size
         self.strategy_effectiveness = {}
         self.difficulty_trend = deque(maxlen=window_size)
         self.learning_rate_history = deque(maxlen=window_size)
-        
-    def reflect_on_learning(self,
-                           current_accuracy: float,
-                           current_loss: float,
-                           learning_rate: float,
-                           task_difficulty: float) -> Dict[str, Any]:
+
+    def reflect_on_learning(
+        self,
+        current_accuracy: float,
+        current_loss: float,
+        learning_rate: float,
+        task_difficulty: float,
+    ) -> Dict[str, Any]:
         """Reflect on current learning effectiveness."""
         self.difficulty_trend.append(task_difficulty)
         self.learning_rate_history.append(learning_rate)
-        
+
         # Analyze trends
         if len(self.difficulty_trend) > 10:
             difficulty_trend = np.mean(list(self.difficulty_trend)[-10:])
@@ -194,17 +206,17 @@ class MetaCognition:
         else:
             difficulty_trend = task_difficulty
             learning_rate_trend = learning_rate
-        
+
         # Determine learning strategy effectiveness
         is_learning = current_loss < 0.5  # Simple heuristic
-        
+
         return {
-            'is_learning_effectively': is_learning,
-            'difficulty_increasing': difficulty_trend > 0.5,
-            'learning_rate_appropriate': 0.0001 <= learning_rate_trend <= 0.01,
-            'should_adjust_strategy': not is_learning and task_difficulty > 0.7,
-            'current_accuracy': float(current_accuracy),
-            'training_efficiency': float(current_accuracy / (current_loss + 1e-6))
+            "is_learning_effectively": is_learning,
+            "difficulty_increasing": difficulty_trend > 0.5,
+            "learning_rate_appropriate": 0.0001 <= learning_rate_trend <= 0.01,
+            "should_adjust_strategy": not is_learning and task_difficulty > 0.7,
+            "current_accuracy": float(current_accuracy),
+            "training_efficiency": float(current_accuracy / (current_loss + 1e-6)),
         }
 
 
@@ -212,7 +224,7 @@ class EpisodicMemory:
     """
     Memory system that remembers specific experiences.
     """
-    
+
     def __init__(self, max_episodes: int = 5000, feature_dim: int = 512):
         self.episodes = deque(maxlen=max_episodes)
         self.max_episodes = max_episodes
@@ -222,22 +234,24 @@ class EpisodicMemory:
         self.errors = np.zeros(max_episodes, dtype=np.float32)
         self.feature_matrix = torch.zeros(max_episodes, feature_dim)
         self.count = 0
-        
-    def store_episode(self,
-                      x: torch.Tensor,
-                      error: float,
-                      surprise: float,
-                      learning_gain: float,
-                      emotional_state: str,
-                      task_difficulty: float,
-                      y: Optional[torch.Tensor] = None,
-                      features: Optional[torch.Tensor] = None) -> None:
+
+    def store_episode(
+        self,
+        x: torch.Tensor,
+        error: float,
+        surprise: float,
+        learning_gain: float,
+        emotional_state: str,
+        task_difficulty: float,
+        y: Optional[torch.Tensor] = None,
+        features: Optional[torch.Tensor] = None,
+    ) -> None:
         """
         Store an important experience.
         """
         # OPTIMIZATION: Use random ID instead of expensive content hashing
         episode_id = random.getrandbits(31)
-        
+
         episode = MemoryEpisode(
             timestamp=len(self.episodes),
             input_hash=episode_id,
@@ -247,7 +261,7 @@ class EpisodicMemory:
             emotional_state=emotional_state,
             task_difficulty=task_difficulty,
             x=x.detach().cpu() if isinstance(x, torch.Tensor) else None,
-            features=features.detach().cpu() if features is not None else None
+            features=features.detach().cpu() if features is not None else None,
         )
 
         # Store in buffers (Vectorized)
@@ -264,99 +278,120 @@ class EpisodicMemory:
             self.count += 1
         else:
             # Replace oldest (FIFO)
-            self.episodes.append(episode) # Deque(maxlen) automatically handles popleft
+            self.episodes.append(episode)  # Deque(maxlen) automatically handles popleft
             self.count += 1
-    
-    def retrieve_relevant_memories(self,
-                                  current_surprise: float,
-                                  current_error: float,
-                                  current_features: Optional[torch.Tensor] = None,
-                                  k: int = 10) -> List[MemoryEpisode]:
+
+    def retrieve_relevant_memories(
+        self,
+        current_surprise: float,
+        current_error: float,
+        current_features: Optional[torch.Tensor] = None,
+        k: int = 10,
+    ) -> List[MemoryEpisode]:
         """[V26.0] Vectorized associative retrieval."""
         if not self.episodes:
             return []
-        
+
         num_avail = len(self.episodes)
-        
+
         # 1. Scalar similarities
-        surprise_sims = 1.0 / (1.0 + np.abs(self.surprises[:num_avail] - current_surprise) + 1e-6)
-        error_sims = 1.0 / (1.0 + np.abs(self.errors[:num_avail] - current_error) + 1e-6)
-        
+        surprise_sims = 1.0 / (
+            1.0 + np.abs(self.surprises[:num_avail] - current_surprise) + 1e-6
+        )
+        error_sims = 1.0 / (
+            1.0 + np.abs(self.errors[:num_avail] - current_error) + 1e-6
+        )
+
         # 2. Feature similarity
         content_sims = np.zeros(num_avail)
         if current_features is not None:
             q_feat = current_features.float().mean(dim=0).view(1, -1).cpu()
             if q_feat.size(1) == self.feature_dim:
                 sims = F.cosine_similarity(q_feat, self.feature_matrix[:num_avail])
-                content_sims = ((sims.numpy() + 1) / 2)
-        
+                content_sims = (sims.numpy() + 1) / 2
+
         # 3. Combined Score
         scores = 0.7 * content_sims + 0.2 * surprise_sims + 0.1 * error_sims
-        
+
         # 4. Top-K
         top_indices = np.argsort(scores)[-k:][::-1]
         return [self.episodes[i] for i in top_indices]
-    
-    def get_lesson_learned(self, 
-                          memories: List[MemoryEpisode]) -> Dict[str, Any]:
+
+    def get_lesson_learned(self, memories: List[MemoryEpisode]) -> Dict[str, Any]:
         """Extract lessons from retrieved memories."""
         if not memories:
-            return {'lesson': 'no_previous_experience'}
-        
+            return {"lesson": "no_previous_experience"}
+
         avg_learning_gain = np.mean([m.learning_gain for m in memories])
         states = [m.emotional_state for m in memories]
         if states:
             most_common_emotion = max(set(states), key=states.count)
         else:
             most_common_emotion = "neutral"
-        
+
         return {
-            'lesson': 'similar_situations_learned_well' if avg_learning_gain > 0.5 else 'similar_situations_were_hard',
-            'emotional_pattern': most_common_emotion,
-            'success_rate': float(avg_learning_gain),
-            'memory_count': len(memories)
+            "lesson": (
+                "similar_situations_learned_well"
+                if avg_learning_gain > 0.5
+                else "similar_situations_were_hard"
+            ),
+            "emotional_pattern": most_common_emotion,
+            "success_rate": float(avg_learning_gain),
+            "memory_count": len(memories),
         }
 
 
 class SelfModel:
     """Internal model of own capabilities."""
-    
+
     def __init__(self):
         self.capability_scores = {}  # Task type -> capability score (0-1)
         self.learning_speed_by_task = {}  # Task -> learning speed
-        self.task_fingerprints = {} # Task -> Tensor fingerprint
-        self.task_fingerprint_matrix = None # [V26.0] Optimized: Matrix of all fingerprints
-        self.task_ids = [] # List of task IDs in matrix order
-        
-    def update_capability(self, task_id: str, accuracy: float, learning_speed: float, fingerprint: Optional[torch.Tensor] = None):
+        self.task_fingerprints = {}  # Task -> Tensor fingerprint
+        self.task_fingerprint_matrix = (
+            None  # [V26.0] Optimized: Matrix of all fingerprints
+        )
+        self.task_ids = []  # List of task IDs in matrix order
+
+    def update_capability(
+        self,
+        task_id: str,
+        accuracy: float,
+        learning_speed: float,
+        fingerprint: Optional[torch.Tensor] = None,
+    ):
         """Update understanding of capability in a task."""
         self.capability_scores[task_id] = accuracy
         self.learning_speed_by_task[task_id] = learning_speed
         if fingerprint is not None:
             fp_cpu = fingerprint.detach().cpu().view(-1).float()
             self.task_fingerprints[task_id] = fp_cpu
-            
+
             # Rebuild matrix
             self.task_ids = list(self.task_fingerprints.keys())
-            self.task_fingerprint_matrix = torch.stack([self.task_fingerprints[tid] for tid in self.task_ids])
-    
-    def assess_readiness(self, task_id: str, fingerprint: Optional[torch.Tensor] = None) -> float:
+            self.task_fingerprint_matrix = torch.stack(
+                [self.task_fingerprints[tid] for tid in self.task_ids]
+            )
+
+    def assess_readiness(
+        self, task_id: str, fingerprint: Optional[torch.Tensor] = None
+    ) -> float:
         """How ready is the model for a new task?"""
         # 1. Exact Match
         if task_id in self.capability_scores:
             capability = self.capability_scores[task_id]
             learning_speed = self.learning_speed_by_task.get(task_id, 0.5)
             return 0.7 * capability + 0.3 * learning_speed
-            
+
         # 2. Fingerprint Similarity (Generalization) [V26.0 Vectorized]
         if fingerprint is not None and self.task_fingerprint_matrix is not None:
             try:
                 target_fp = fingerprint.view(1, -1).float().cpu()
                 sims = F.cosine_similarity(target_fp, self.task_fingerprint_matrix)
-                
+
                 # Get Top-3
                 vals, idxs = torch.topk(sims, k=min(3, sims.size(0)))
-                
+
                 total_weight = vals.clamp(min=0).sum() + 1e-6
                 weighted_score = 0.0
                 for i in range(vals.size(0)):
@@ -364,20 +399,22 @@ class SelfModel:
                     known_id = self.task_ids[idxs[i].item()]
                     known_score = self.capability_scores.get(known_id, 0.5)
                     weighted_score += weight * known_score
-                    
+
                 return weighted_score
-                
-            except Exception as e:
+
+            except Exception:
                 # Fallback on error
                 pass
 
         # 3. Fallback (Average of known tasks)
         if self.capability_scores:
             return sum(self.capability_scores.values()) / len(self.capability_scores)
-            
+
         return 0.5  # Unknown task
 
-    def propose_curriculum(self, available_tasks: Dict[str, torch.Tensor], curiosity_weight: float = 0.5) -> str:
+    def propose_curriculum(
+        self, available_tasks: Dict[str, torch.Tensor], curiosity_weight: float = 0.5
+    ) -> str:
         """
         Select the best task from a menu based on Readiness and Curiosity.
         Policy: Maximize (Readiness * (1 + Curiosity_Bonus))
@@ -386,11 +423,11 @@ class SelfModel:
         """
         best_task = None
         best_score = -1.0
-        
+
         for task_id, fingerprint in available_tasks.items():
             # 1. Readiness (0.0 to 1.0)
             readiness = self.assess_readiness(task_id, fingerprint)
-            
+
             # 2. Curiosity (Novelty) [V26.0 Vectorized]
             # Calculate distance to nearest known task
             min_dist = 1.0
@@ -400,40 +437,39 @@ class SelfModel:
                 # Distance = 1 - max_similarity
                 max_sim = sims.max().item()
                 min_dist = max(0, 1.0 - max_sim)
-            
+
             # Curiosity is high if the task is different from what we know
-            curiosity = min_dist 
-            
+            curiosity = min_dist
+
             # 3. Combined Score
             # We target a "Zone of Proximal Development":
             # - Readiness should be high enough (>0.3) to learn.
             # - Curiosity adds a bonus.
-            
+
             # If readiness is too low, we might fail completely, so penalize hard.
             penalty = 1.0 if readiness > 0.2 else 0.1
-            
+
             score = (readiness * (1 + curiosity * curiosity_weight)) * penalty
-            
+
             if score > best_score:
                 best_score = score
                 best_task = task_id
-                
+
         return best_task if best_task else random.choice(list(available_tasks.keys()))
 
 
 class Personality:
     """Learning personality - consistent preferences for how to learn."""
-    
+
     def __init__(self):
-        self.exploration_tendency = 0.5   
-        self.risk_tolerance = 0.5         
-        self.learning_style = "balanced"  
-        self.patience = 0.5               
-        
-    def adjust_based_on_performance(self,
-                                   recent_accuracy: float,
-                                   exploration_payoff: float,
-                                   task_diversity: float):
+        self.exploration_tendency = 0.5
+        self.risk_tolerance = 0.5
+        self.learning_style = "balanced"
+        self.patience = 0.5
+
+    def adjust_based_on_performance(
+        self, recent_accuracy: float, exploration_payoff: float, task_diversity: float
+    ):
         # If exploration pays off, become more exploratory
         if exploration_payoff > 0.7:
             self.exploration_tendency = min(1.0, self.exploration_tendency + 0.05)
@@ -443,25 +479,25 @@ class Personality:
             self.learning_style = "exploitation"
         else:
             self.learning_style = "balanced"
-        
+
         self.risk_tolerance = 0.5 + (recent_accuracy - 0.5) * 0.5
         self.patience = 0.5 + (task_diversity - 0.5) * 0.5
 
 
 class AdaptiveAwareness:
     """Consciousness level adapts based on task demands."""
-    
+
     def __init__(self):
-        self.consciousness_level = 0.5 
+        self.consciousness_level = 0.5
         self.task_complexity = 0.5
-        
+
     def update_consciousness_level(self, task_complexity: float, performance: float):
         self.task_complexity = task_complexity
-        
+
         if task_complexity > 0.7 and performance < 0.6:
-            self.consciousness_level = 1.0 # Maximum Alertness
+            self.consciousness_level = 1.0  # Maximum Alertness
         elif task_complexity < 0.3 and performance > 0.9:
-            self.consciousness_level = 0.2 # Flow State / Autopilot
+            self.consciousness_level = 0.2  # Flow State / Autopilot
         else:
             self.consciousness_level = 0.5 + (task_complexity - 0.5) * 0.5
 
@@ -470,18 +506,21 @@ class ThoughtProcess(nn.Module):
     """
     Represents a single step of "thinking" in the Global Workspace.
     """
+
     def __init__(self, dim=256, num_heads=4, dropout=0.1):
         super().__init__()
-        self.self_attn = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
+        self.self_attn = nn.MultiheadAttention(
+            dim, num_heads, dropout=dropout, batch_first=True
+        )
         self.norm1 = nn.LayerNorm(dim)
         self.ff = nn.Sequential(
             nn.Linear(dim, dim * 4),
             nn.GELU(),
             nn.Linear(dim * 4, dim),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
         )
         self.norm2 = nn.LayerNorm(dim)
-        
+
     def forward(self, x):
         # x: [B, Slots, D]
         attn_out, _ = self.self_attn(x, x, x)
@@ -490,59 +529,64 @@ class ThoughtProcess(nn.Module):
         x = self.norm2(x + ff_out)
         return x
 
+
 class RecursiveGlobalWorkspace(nn.Module):
     """
     V3.0 Global Workspace with Recursive "System 2" Capability.
     """
+
     def __init__(self, dim=256, num_slots=8, num_heads=4, max_thinking_steps=5):
         super().__init__()
         self.dim = dim
         self.num_slots = num_slots
         self.max_thinking_steps = max_thinking_steps
-        
+
         # The "Working Memory" Slots
         self.slots = nn.Parameter(torch.randn(1, num_slots, dim))
-        
+
         # Input Projection (Sensory -> Workspace)
         self.input_gate = nn.MultiheadAttention(dim, num_heads, batch_first=True)
         self.input_norm = nn.LayerNorm(dim)
-        
+
         # The "Thinking" Core
         self.thought_process = ThoughtProcess(dim, num_heads)
-        
+
         # Broadcast (Workspace -> Output/Action)
         self.broadcast_gate = nn.Linear(dim, dim)
-        
-    def forward(self, inputs: torch.Tensor, thinking_steps: int = 1) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+
+    def forward(
+        self, inputs: torch.Tensor, thinking_steps: int = 1
+    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
         """
         inputs: [B, N, D] (Sensory information)
         thinking_steps: How many recursive loops to run.
         """
         # [V26.1] Device Defense
         inputs = inputs.to(self.slots.device)
-        
+
         B = inputs.size(0)
-        if inputs.dim() == 2: inputs = inputs.unsqueeze(1)
-        
+        if inputs.dim() == 2:
+            inputs = inputs.unsqueeze(1)
+
         # 1. Initialize Slots
-        slots = self.slots.expand(B, -1, -1) # [B, S, D]
-        
+        slots = self.slots.expand(B, -1, -1)  # [B, S, D]
+
         # 2. Read Inputs (Competition)
         # Slots query the Inputs
         attn_out, _ = self.input_gate(slots, inputs, inputs)
         slots = self.input_norm(slots + attn_out)
-        
+
         # 3. Recursive Thinking (System 2)
         thought_trace = []
         for _ in range(thinking_steps):
             slots = self.thought_process(slots)
             thought_trace.append(slots.detach())
-            
+
         # 4. Broadcast
         # Aggregate slots to form a coherent "Global State"
-        global_state = slots.mean(dim=1) # [B, D]
+        global_state = slots.mean(dim=1)  # [B, D]
         broadcast = self.broadcast_gate(global_state)
-        
+
         return broadcast, thought_trace
 
 
@@ -551,16 +595,18 @@ class EnhancedConsciousnessCore(nn.Module):
     Integrated consciousness system combining all components.
     Optimized for low-latency observation (V7.2).
     """
-    
-    def __init__(self,
-                 feature_dim: int = 256,
-                 num_heads: int = 4,
-                 awareness_buffer_size: int = 5000,
-                 novelty_threshold: float = 2.0,
-                 model: Optional[nn.Module] = None):
+
+    def __init__(
+        self,
+        feature_dim: int = 256,
+        num_heads: int = 4,
+        awareness_buffer_size: int = 5000,
+        novelty_threshold: float = 2.0,
+        model: Optional[nn.Module] = None,
+    ):
         super().__init__()
-        self.logger = logging.getLogger('EnhancedConsciousnessCore')
-        
+        self.logger = logging.getLogger("EnhancedConsciousnessCore")
+
         # Core components
         self.emotional_system = EmotionalSystem()
         self.metacognition = MetaCognition()
@@ -568,29 +614,42 @@ class EnhancedConsciousnessCore(nn.Module):
         self.self_model = SelfModel()
         self.personality = Personality()
         self.adaptive_awareness = AdaptiveAwareness()
-        
+
         # Global Workspace (The "Mind's Eye")
-        print(f"DEBUG: Initializing Global Workspace with dim={feature_dim}, num_heads={num_heads}", flush=True)
-        self.global_workspace = RecursiveGlobalWorkspace(dim=feature_dim, num_heads=num_heads)
-        self.current_thought_trace = [] # Trace of thought steps
-        self.thought_stream = deque(maxlen=1000) # Stream of thoughts
+        print(
+            f"DEBUG: Initializing Global Workspace with dim={feature_dim}, num_heads={num_heads}",
+            flush=True,
+        )
+        self.global_workspace = RecursiveGlobalWorkspace(
+            dim=feature_dim, num_heads=num_heads
+        )
+        self.current_thought_trace = []  # Trace of thought steps
+        self.thought_stream = deque(maxlen=1000)  # Stream of thoughts
         self.confusion_level = 0.0
-        
+
         # Basic tracking
         self.feature_dim = feature_dim
         self.novelty_threshold = novelty_threshold
         self.error_mean = 0.0
         self.error_std = 1.0
         self.error_ewma = 0.99
-        
+
         # State tracking
         self.step_count = 0
         self.current_emotional_state = EmotionalState.CONFIDENT
         self.current_emotion_scores = {}
-        
-        self.learning_priority = {'consolidation_urgency': 0.0, 'replay_priority': 0.5}
 
-    def observe(self, *input_args, y_true, y_pred, task_id: str = "default", features: Optional[torch.Tensor] = None, internal_mode: bool = False) -> Dict[str, Any]:
+        self.learning_priority = {"consolidation_urgency": 0.0, "replay_priority": 0.5}
+
+    def observe(
+        self,
+        *input_args,
+        y_true,
+        y_pred,
+        task_id: str = "default",
+        features: Optional[torch.Tensor] = None,
+        internal_mode: bool = False,
+    ) -> Dict[str, Any]:
         """
         Observe an example and update consciousness state.
         Accepts multiple input tensors via *input_args.
@@ -601,14 +660,14 @@ class EnhancedConsciousnessCore(nn.Module):
         # 1. Error and Surprise
         y_pred_flat = y_pred.view(y_pred.size(0), -1).float()
         y_true_f = y_true.float()
-        
+
         # Determine Task Type
         is_classification = False
         if y_true.dim() == 1 and y_pred_flat.size(1) > 1:
             is_classification = True
         elif y_true.dim() == 2 and y_pred.dim() == 3:
             is_classification = True
-            
+
         try:
             if is_classification:
                 if y_true.dim() == 2:
@@ -617,17 +676,23 @@ class EnhancedConsciousnessCore(nn.Module):
                 else:
                     y_t = y_true.long()
                     y_p = y_pred_flat
-                error = F.cross_entropy(y_p, y_t, reduction='none')
+                error = F.cross_entropy(y_p, y_t, reduction="none")
                 probs = F.softmax(y_p, dim=1)
                 confidence = probs.gather(1, y_t.unsqueeze(1)).mean().item()
-                uncertainty = -(probs * torch.log(probs + 1e-6)).sum(dim=1).mean().item()
+                uncertainty = (
+                    -(probs * torch.log(probs + 1e-6)).sum(dim=1).mean().item()
+                )
             else:
                 # Regression
                 y_t = y_true_f.view_as(y_pred_flat)
                 y_p = y_pred_flat
                 error = torch.abs(y_p - y_t).mean(dim=1)
                 confidence = 1.0 / (1.0 + error.mean().item())
-                uncertainty = y_pred_flat.var(dim=0).mean().item() if y_pred_flat.size(0) > 1 else 0.5
+                uncertainty = (
+                    y_pred_flat.var(dim=0).mean().item()
+                    if y_pred_flat.size(0) > 1
+                    else 0.5
+                )
         except Exception:
             error = torch.tensor([0.0], device=y_pred.device)
             confidence = 0.5
@@ -646,20 +711,35 @@ class EnhancedConsciousnessCore(nn.Module):
         novelty = 0.0
         if features is not None:
             # [V9.3 BUGFIX] Avoid cold-start by initializing mean to first batch's features
-            if not hasattr(self, 'mean_feature_vector') or self.mean_feature_vector.abs().sum() < 1e-6:
+            if (
+                not hasattr(self, "mean_feature_vector")
+                or self.mean_feature_vector.abs().sum() < 1e-6
+            ):
                 self.mean_feature_vector = features.mean(dim=0).detach()
-            
+
             novelty = torch.norm(features.mean(dim=0) - self.mean_feature_vector).item()
-            self.mean_feature_vector = 0.99 * self.mean_feature_vector + 0.01 * features.mean(dim=0)
+            self.mean_feature_vector = (
+                0.99 * self.mean_feature_vector + 0.01 * features.mean(dim=0)
+            )
 
             # [V8.3] Surgical Hardening: Skip cognitive loops only in internal hibernation mode
             if not internal_mode:
                 try:
-                    thinking_steps = 3 if uncertainty > 0.8 or self.error_mean > 1.0 else (2 if uncertainty > 0.5 else 1)
-                    self.confusion_level = 1.0 if uncertainty > 0.8 else (0.5 if uncertainty > 0.5 else 0.0)
+                    thinking_steps = (
+                        3
+                        if uncertainty > 0.8 or self.error_mean > 1.0
+                        else (2 if uncertainty > 0.5 else 1)
+                    )
+                    self.confusion_level = (
+                        1.0
+                        if uncertainty > 0.8
+                        else (0.5 if uncertainty > 0.5 else 0.0)
+                    )
 
                     if features.size(-1) == self.feature_dim:
-                        workspace_out, trace = self.global_workspace(features, thinking_steps=thinking_steps)
+                        workspace_out, trace = self.global_workspace(
+                            features, thinking_steps=thinking_steps
+                        )
                         # Store the final 'thought' state for feedback loops
                         self.last_workspace_state = workspace_out.detach()
                         # [OPTIMIZATION] Move trace to CPU to prevent VRAM leak
@@ -673,21 +753,23 @@ class EnhancedConsciousnessCore(nn.Module):
                 self.confusion_level = 0.0
 
         # 3. Meta-Cognition Reflection
-        meta_stats = self.metacognition.reflect_on_learning(
+        self.metacognition.reflect_on_learning(
             current_accuracy=confidence,
             current_loss=current_loss,
             learning_rate=0.001,
-            task_difficulty=uncertainty
+            task_difficulty=uncertainty,
         )
-        
+
         # 4. Emotional State
-        self.current_emotional_state, self.current_emotion_scores = self.emotional_system.compute_emotional_state(
-            confidence=confidence,
-            uncertainty=uncertainty,
-            novelty=novelty,
-            current_loss=current_loss
+        self.current_emotional_state, self.current_emotion_scores = (
+            self.emotional_system.compute_emotional_state(
+                confidence=confidence,
+                uncertainty=uncertainty,
+                novelty=novelty,
+                current_loss=current_loss,
+            )
         )
-        
+
         # 5. Store Episode
         if not internal_mode:
             self.episodic_memory.store_episode(
@@ -698,53 +780,62 @@ class EnhancedConsciousnessCore(nn.Module):
                 emotional_state=self.current_emotional_state.value,
                 task_difficulty=uncertainty,
                 y=y_true,
-                features=features
+                features=features,
             )
 
         # 6. Return Metrics
         metrics = {
-            'loss': current_loss,
-            'confidence': confidence,
-            'uncertainty': uncertainty,
-            'surprise': surprise,
-            'novelty': novelty,
-            'emotion': self.current_emotional_state.name,
-            'confusion': self.confusion_level,
-            'importance': 1.0 + surprise + (1-confidence),
-            'learning_rate_multiplier': self.emotional_system.get_learning_multiplier(self.current_emotional_state),
-            'consciousness_state': getattr(self, 'last_workspace_state', None)
+            "loss": current_loss,
+            "confidence": confidence,
+            "uncertainty": uncertainty,
+            "surprise": surprise,
+            "novelty": novelty,
+            "emotion": self.current_emotional_state.name,
+            "confusion": self.confusion_level,
+            "importance": 1.0 + surprise + (1 - confidence),
+            "learning_rate_multiplier": self.emotional_system.get_learning_multiplier(
+                self.current_emotional_state
+            ),
+            "consciousness_state": getattr(self, "last_workspace_state", None),
         }
-        
+
         # [V8.0] Expose for UI/Dashboard
         self.last_metrics = metrics
-        
+
         return metrics
-    
+
     def _update_error_stats(self, error: torch.Tensor):
         """Update running statistics for surprise detection."""
         current_error = error.mean().item()
-        if math.isnan(current_error): return
+        if math.isnan(current_error):
+            return
 
-        self.error_mean = self.error_ewma * self.error_mean + \
-                         (1 - self.error_ewma) * current_error
-        
-        if not hasattr(self, '_error_variance'):
+        self.error_mean = (
+            self.error_ewma * self.error_mean + (1 - self.error_ewma) * current_error
+        )
+
+        if not hasattr(self, "_error_variance"):
             self._error_variance = 1.0
-        
+
         variance_increment = (current_error - self.error_mean) ** 2
-        self._error_variance = self.error_ewma * self._error_variance + \
-                              (1 - self.error_ewma) * variance_increment
-        
+        self._error_variance = (
+            self.error_ewma * self._error_variance
+            + (1 - self.error_ewma) * variance_increment
+        )
+
         self.error_std = max(np.sqrt(self._error_variance), 1e-4)
-    
+
     def _compute_surprise(self, error: torch.Tensor) -> float:
         """Compute how surprised the model is by this example."""
-        if self.error_std < 1e-6: return 0.0
+        if self.error_std < 1e-6:
+            return 0.0
         val = error.mean().item()
-        if math.isnan(val): return 0.0
-        
+        if math.isnan(val):
+            return 0.0
+
         z_score = (val - self.error_mean) / self.error_std
         return float(z_score)
+
 
 # Backward compatibility for V7.0 imports
 ConsciousnessCore = EnhancedConsciousnessCore

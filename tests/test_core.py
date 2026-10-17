@@ -1,8 +1,11 @@
-import pytest
 import torch
 import torch.nn as nn
-from airborne_antara.core import AdaptiveFramework, AdaptiveFrameworkConfig, CognitiveRegime
-from airborne_antara.presets import PRESETS
+from airborne_antara.core import (
+    AdaptiveFramework,
+    AdaptiveFrameworkConfig,
+    CognitiveRegime,
+)
+
 
 class SimpleModel(nn.Module):
     def __init__(self):
@@ -14,12 +17,13 @@ class SimpleModel(nn.Module):
     def forward(self, x):
         return self.fc2(self.relu(self.fc1(x)))
 
+
 def test_adaptive_framework_initialization():
     model = SimpleModel()
     config = AdaptiveFrameworkConfig(
         model_dim=20,
         enable_consciousness=False,
-        enable_moe=False,
+        use_moe=False,
         enable_perception=False,
         enable_world_model=False,
     )
@@ -27,21 +31,23 @@ def test_adaptive_framework_initialization():
     assert framework is not None
     assert framework.model is model
 
+
 def test_adaptive_framework_forward():
     model = SimpleModel()
     config = AdaptiveFrameworkConfig(
         model_dim=20,
         enable_consciousness=False,
-        enable_moe=False,
+        use_moe=False,
         enable_perception=False,
         enable_world_model=False,
     )
     framework = AdaptiveFramework(model, config=config)
     x = torch.randn(4, 10)
-    out = framework(x)
+    out, _, _, _ = framework(x)
     assert isinstance(out, torch.Tensor)
     assert out.shape == (4, 2)
 
+
 def test_cognitive_regime_enum():
-    assert CognitiveRegime.EXPLORATION is not None
-    assert CognitiveRegime.EXPLOITATION is not None
+    assert CognitiveRegime.SCRATCH.value == "scratch"
+    assert CognitiveRegime.CONTINUOUS.value == "continuous"

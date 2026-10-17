@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import logging
-from typing import Dict, Any
+from typing import Dict
+
 
 class NeuralHealthMonitor:
     """
@@ -13,7 +14,13 @@ class NeuralHealthMonitor:
     - Weight Saturation
     - [NEW] Repair Patience: Avoids reset loops during convergence noise.
     """
-    def __init__(self, model: nn.Module, dead_threshold: float = 1e-12, explosion_threshold: float = 1e2):
+
+    def __init__(
+        self,
+        model: nn.Module,
+        dead_threshold: float = 1e-12,
+        explosion_threshold: float = 1e2,
+    ):
         self.model = model
         self.dead_threshold = dead_threshold
         self.explosion_threshold = explosion_threshold
@@ -45,7 +52,13 @@ class NeuralHealthMonitor:
                 report[name] = status
         return report
 
-    def autonomic_repair(self, report: Dict[str, str], projector=None, expert_usage: Dict[int, float] = None, memory=None):
+    def autonomic_repair(
+        self,
+        report: Dict[str, str],
+        projector=None,
+        expert_usage: Dict[int, float] = None,
+        memory=None,
+    ):
         """
         [V9.3] MoE-Aware Soft Jitter Rejuvenation.
         Preserves knowledge in idle experts while fixing truly dead neurons.
@@ -67,31 +80,39 @@ class NeuralHealthMonitor:
                         pass
 
                 # [V9.2] Neural Shivering: Small Gaussian noise to break equilibrium
-                self.logger.info(f"[REPAIR] Autonomic Shiver: Rejuvenating {status} layer '{name}'")
-                
+                self.logger.info(
+                    f"[REPAIR] Autonomic Shiver: Rejuvenating {status} layer '{name}'"
+                )
+
                 param = dict(self.model.named_parameters())[name]
-                noise_scale = 1e-4 # Conservative jitter
-                
+                noise_scale = 1e-4  # Conservative jitter
+
                 noise = torch.randn_like(param.data) * noise_scale
                 if projector is not None:
                     noise = projector.project_gradient(name, noise)
 
                 # [V17] UNYIELDING SOUL: Apply Sacred Mask protection to repairs
-                mem = memory if memory is not None else getattr(self.model, 'memory', None)
-                if mem and hasattr(mem, 'sacred_mask'):
+                mem = (
+                    memory
+                    if memory is not None
+                    else getattr(self.model, "memory", None)
+                )
+                if mem and hasattr(mem, "sacred_mask"):
                     mask = mem.sacred_mask.get(name, None)
                     if mask is not None and mask.any():
                         noise = noise * (~mask.to(noise.device))
-                
+
                 param.data.add_(noise)
                 repairs_made += 1
-                
+
             elif status == "CRITICAL":
                 # Critical explosions: aggressive scaling
-                self.logger.warning(f"[WARNING] Autonomic Scaler: Protecting exploding layer '{name}'")
+                self.logger.warning(
+                    f"[WARNING] Autonomic Scaler: Protecting exploding layer '{name}'"
+                )
                 param = dict(self.model.named_parameters())[name]
                 if param.grad is not None:
                     param.grad.data.copy_(torch.clamp(param.grad.data, -5.0, 5.0))
                 repairs_made += 1
-                
+
         return repairs_made

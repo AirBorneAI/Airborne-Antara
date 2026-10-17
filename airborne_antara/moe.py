@@ -2,18 +2,21 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import copy
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Optional
+
 
 class ExpertBlock(nn.Module):
     """
     A wrapper for any neural module to act as an expert.
     """
+
     def __init__(self, model):
         super().__init__()
         self.model = model
 
     def forward(self, x, task_id=None):
         return self.model(x)
+
 
 class AdaptiveExpertBlock(nn.Module):
     """
@@ -22,36 +25,39 @@ class AdaptiveExpertBlock(nn.Module):
     with lightweight Task-Adaptive Adapters (FiLM/LoRA).
     Ensures 8GB GPU stability with many experts.
     """
+
     def __init__(self, shared_backbone, input_dim, adapter_dim=32):
         super().__init__()
-        self.backbone = shared_backbone # Reference to shared weights
+        self.backbone = shared_backbone  # Reference to shared weights
         # Expert-specific modulation
         self.modulation = nn.Sequential(
             nn.Linear(input_dim, adapter_dim),
             nn.ReLU(),
-            nn.Linear(adapter_dim, input_dim * 2) # For Scale and Shift
+            nn.Linear(adapter_dim, input_dim * 2),  # For Scale and Shift
         )
 
     def forward(self, x, task_id=None):
         # 1. Generate local modulation from input
         # Pool seq if needed
-        if x.dim() == 3: 
+        if x.dim() == 3:
             x_flat = x.mean(dim=1)
-        else: 
+        else:
             x_flat = x.view(x.size(0), -1)
-        
+
         # Verify alignment
         if x_flat.size(-1) != self.modulation[0].in_features:
-            x_flat = F.adaptive_avg_pool1d(x_flat.unsqueeze(1), self.modulation[0].in_features).squeeze(1)
+            x_flat = F.adaptive_avg_pool1d(
+                x_flat.unsqueeze(1), self.modulation[0].in_features
+            ).squeeze(1)
 
         mod = self.modulation(x_flat)
         scale, shift = torch.chunk(mod, 2, dim=-1)
-        
+
         # [V31.15] MIRRORMIND SANITIZATION: Bound Scale & Shift (The Shunt)
         # Prevents unconstrained modulation from exploding logits at task start.
-        scale = torch.tanh(scale) * 2.0 # Bound scale to [-2.0, 2.0]
-        shift = torch.tanh(shift) * 5.0 # Bound shift to [-5.0, 5.0]
-        
+        scale = torch.tanh(scale) * 2.0  # Bound scale to [-2.0, 2.0]
+        shift = torch.tanh(shift) * 5.0  # Bound shift to [-5.0, 5.0]
+
         # 2. View to match input dimensions for broadcasting
         if x.dim() == 4:
             scale = scale.view_as(x)
@@ -59,10 +65,11 @@ class AdaptiveExpertBlock(nn.Module):
         elif x.dim() == 3:
             scale = scale.unsqueeze(1)
             shift = shift.unsqueeze(1)
-        
+
         # 3. Apply shared backbone with local modulation
         # This is essentially a dynamic FiLM-Expert
         return self.backbone(x * (1 + scale) + shift)
+
 
 class TrainableFeatureExtractor(nn.Module):
     def __init__(self, input_dim):
@@ -78,7 +85,7 @@ class TrainableFeatureExtractor(nn.Module):
                 nn.Conv2d(64, 128, kernel_size=3, padding=1),
                 nn.ReLU(),
                 nn.AdaptiveAvgPool2d((2, 2)),
-                nn.Flatten()
+                nn.Flatten(),
             )
             self.out_dim = 128 * 2 * 2
         elif input_dim == 12288:
@@ -92,17 +99,19 @@ class TrainableFeatureExtractor(nn.Module):
                 nn.Conv2d(64, 128, kernel_size=3, padding=1),
                 nn.ReLU(),
                 nn.AdaptiveAvgPool2d((2, 2)),
-                nn.Flatten()
+                nn.Flatten(),
             )
             self.out_dim = 128 * 2 * 2
         else:
             self.conv = nn.Identity()
             self.out_dim = input_dim
 
+
 class GatingNetwork(nn.Module):
     """
     Router that decides which experts to activate.
     """
+
     def __init__(self, input_dim, num_experts, top_k=2, temperature=1.0):
         super().__init__()
         self.feature_extractor = TrainableFeatureExtractor(input_dim)
@@ -110,10 +119,12 @@ class GatingNetwork(nn.Module):
         self.top_k = top_k
         self.temperature = temperature
 
-    def forward(self, x, task_id=None, consciousness_state: Optional[torch.Tensor] = None):
+    def forward(
+        self, x, task_id=None, consciousness_state: Optional[torch.Tensor] = None
+    ):
         # [V17] Hard Reset of local cache to prevent graph leakage
         self.aux_loss = torch.tensor(0.0, device=x.device)
-        
+
         # [V34] EXTRACT FEATURES USING TRAINABLE CNN
         if isinstance(self.feature_extractor.conv, nn.Sequential):
             if x.dim() == 2:
@@ -124,7 +135,7 @@ class GatingNetwork(nn.Module):
                 x_img = x
             else:
                 x_img = x
-                
+
             x_flat = self.feature_extractor.conv(x_img)
         else:
             if x.dim() >= 3:
@@ -139,88 +150,106 @@ class GatingNetwork(nn.Module):
                     x_flat = x_flat_all
             else:
                 x_flat = x
-            
+
         # Verify alignment with gate input dimension
         if x_flat.size(-1) != self.gate.in_features:
             # Fallback: Force resize if possible, or raise clear error
             if x_flat.numel() % self.gate.in_features == 0:
                 x_flat = x_flat.view(x.size(0), self.gate.in_features)
             else:
-                raise ValueError(f"SOTA MoE Shape Mismatch: Got {x_flat.shape[1]}, expected {self.gate.in_features}. "
-                                 f"Original input: {x.shape}")
+                raise ValueError(
+                    f"SOTA MoE Shape Mismatch: Got {x_flat.shape[1]}, expected {self.gate.in_features}. "
+                    f"Original input: {x.shape}"
+                )
 
         # [V31.8] STRATEGIC MODE: Consciousness-Informed Gating
-        logits = self.gate(x_flat) 
-        
+        logits = self.gate(x_flat)
+
         if consciousness_state is not None:
-            # Broadcast consciousness impact. 
-            if not hasattr(self, 'cons_proj') or self.cons_proj is None:
-                self.cons_proj = nn.Linear(consciousness_state.size(-1), self.gate.out_features).to(x.device)
-                self.add_module('cons_proj', self.cons_proj)
-            
+            # Broadcast consciousness impact.
+            if not hasattr(self, "cons_proj") or self.cons_proj is None:
+                self.cons_proj = nn.Linear(
+                    consciousness_state.size(-1), self.gate.out_features
+                ).to(x.device)
+                self.add_module("cons_proj", self.cons_proj)
+
             cons_bias = self.cons_proj(consciousness_state.to(x.device))
             logits = logits + cons_bias
-            
+
         logits = logits / max(self.temperature, 1e-8)
         self.last_logits = logits
-        
+
         # Top-k gating
         # Keep top k values, set others to -inf
         top_k_logits, top_k_indices = torch.topk(logits, self.top_k, dim=1)
-        
+
         # Softmax over top-k
         weights = F.softmax(top_k_logits, dim=1)
-        
+
         # [V31.8] STRATEGIC MODE: Expert Gini Regularization
-        # Gini Index encourages uniform load balancing. 
+        # Gini Index encourages uniform load balancing.
         # Higher Gini = Higher diversity (fewer bottlenecks).
         batch_size = top_k_indices.size(0)
         mask = torch.zeros(batch_size, self.gate.out_features, device=x.device)
         mask.scatter_(1, top_k_indices, weights)
-        
+
         # Cast metrics to float32 to avoid overflow/underflow under FP16
         importance_f32 = mask.sum(dim=0).float()
         mean_imp = importance_f32.mean() + 1e-6
         var_imp = importance_f32.var()
-        
-        gini_importance = weights.sum(dim=0).float()
+
+        gini_importance = mask.sum(dim=0).float()
         gini_importance = gini_importance / (gini_importance.sum() + 1e-8)
         gini_loss = 1.0 - torch.sum(gini_importance**2)
-        
+
         # Combine Variance-based loss with Gini-based diversity with numeric guards
-        raw_aux_loss = (var_imp / (mean_imp ** 2)) * 0.5 + (1.0 - gini_loss) * 0.5
-        self.aux_loss = torch.nan_to_num(raw_aux_loss, nan=0.0, posinf=0.0, neginf=0.0).to(x.device)
-        
+        raw_aux_loss = (var_imp / (mean_imp**2)) * 0.5 + (1.0 - gini_loss) * 0.5
+        self.aux_loss = torch.nan_to_num(
+            raw_aux_loss, nan=0.0, posinf=0.0, neginf=0.0
+        ).to(x.device)
+
         return weights, top_k_indices
 
     def get_aux_loss(self):
-        val = getattr(self, 'aux_loss', 0.0)
+        val = getattr(self, "aux_loss", 0.0)
         return val if val is not None else 0.0
+
 
 class SparseMoE(nn.Module):
     """
     The Sparse Mixture of Experts Container.
     """
-    def __init__(self, base_model, input_dim, num_experts=4, top_k=2, temperature=1.0, classes_per_task=10):
+
+    def __init__(
+        self,
+        base_model,
+        input_dim,
+        num_experts=4,
+        top_k=2,
+        temperature=1.0,
+        classes_per_task=10,
+    ):
         super().__init__()
         self.num_experts = num_experts
         self.top_k = top_k
         self.classes_per_task = classes_per_task
-        self.use_adaptive = getattr(base_model, '_moe_adaptive', False)
-        
-        if self.use_adaptive:
-            self.experts = nn.ModuleList([
-                AdaptiveExpertBlock(base_model, input_dim) for _ in range(num_experts)
-            ])
-        else:
-            self.experts = nn.ModuleList([
-                ExpertBlock(copy.deepcopy(base_model)) for _ in range(num_experts)
-            ])
-        
-        self.gate = GatingNetwork(input_dim, num_experts, top_k, temperature)
-        self.register_buffer('expert_usage', torch.zeros(num_experts))
+        self.use_adaptive = getattr(base_model, "_moe_adaptive", False)
 
-    def distill_expert(self, source_idx: int, target_idx: int, noise_scale: float = 0.01):
+        if self.use_adaptive:
+            self.experts = nn.ModuleList(
+                [AdaptiveExpertBlock(base_model, input_dim) for _ in range(num_experts)]
+            )
+        else:
+            self.experts = nn.ModuleList(
+                [ExpertBlock(copy.deepcopy(base_model)) for _ in range(num_experts)]
+            )
+
+        self.gate = GatingNetwork(input_dim, num_experts, top_k, temperature)
+        self.register_buffer("expert_usage", torch.zeros(num_experts))
+
+    def distill_expert(
+        self, source_idx: int, target_idx: int, noise_scale: float = 0.01
+    ):
         """
         [V31.8] STRATEGIC MODE: Task-Informed Initialization.
         Initializes a new expert as a noisy copy of a successful old expert.
@@ -229,36 +258,39 @@ class SparseMoE(nn.Module):
         """
         if source_idx >= self.num_experts or target_idx >= self.num_experts:
             return
-            
+
         source_state = self.experts[source_idx].state_dict()
         new_state = {}
         for k, v in source_state.items():
             # Add a tiny bit of noise to break symmetry
             new_state[k] = v.clone() + torch.randn_like(v) * v.std() * noise_scale
-            
+
             # [V31.12] Head Sanitization: If this is a classification head (fc.weight/bias),
             # we zero out all rows except the ones belonging to the source expert's identity.
             # This ensures the new expert starts with a 'neutral' outlook on its future tasks.
             if "fc." in k:
                 # Assuming source expert 'owns' classes [source_idx*10, (source_idx+1)*10]
-                # for standard CIFAR100 setup. 
+                # for standard CIFAR100 setup.
                 # We'll use a more general approach: zero everything, then restore source rows.
                 mask = torch.zeros(v.shape[0], dtype=torch.bool, device=v.device)
                 # Heuristic: source_idx * self.classes_per_task (cpt)
-                s, e = source_idx * self.classes_per_task, (source_idx + 1) * self.classes_per_task
+                s, e = (
+                    source_idx * self.classes_per_task,
+                    (source_idx + 1) * self.classes_per_task,
+                )
                 if s < v.shape[0]:
-                    mask[s:min(e, v.shape[0])] = True
-                    
+                    mask[s : min(e, v.shape[0])] = True
+
                 # Zero out non-source rows
-                if v.dim() > 1: # weight
+                if v.dim() > 1:  # weight
                     new_state[k][~mask, :] = 0.0
-                else: # bias
+                else:  # bias
                     new_state[k][~mask] = 0.0
-            
+
             # [V31.14] Bias Sanitization: Expert bias must be neutral
             elif "bias" in k and "fc" not in k:
                 new_state[k] = torch.zeros_like(v)
-            
+
         self.experts[target_idx].load_state_dict(new_state)
 
     def set_temperature(self, temperature):
@@ -266,53 +298,83 @@ class SparseMoE(nn.Module):
 
     def get_usage_stats(self):
         return self.expert_usage.cpu().numpy()
-        
+
     def get_aux_loss(self):
         return self.gate.get_aux_loss()
 
-    def forward(self, x, task_id=None, consciousness_state: Optional[torch.Tensor] = None, internal_mode: bool = False, target_data=None):
+    def forward(
+        self,
+        x,
+        task_id=None,
+        consciousness_state: Optional[torch.Tensor] = None,
+        internal_mode: bool = False,
+        target_data=None,
+    ):
         if self.training and task_id is not None:
             target_expert = task_id % self.num_experts
-            
-            use_per_sample_routing = (target_data is not None) and (not torch.is_floating_point(target_data))
+
+            use_per_sample_routing = (target_data is not None) and (
+                not torch.is_floating_point(target_data)
+            )
             if use_per_sample_routing:
                 flat_targets = target_data.view(-1).to(x.device)
-                cpt = getattr(self, 'classes_per_task', 10)
+                cpt = getattr(self, "classes_per_task", 10)
                 sample_task_ids = flat_targets // cpt
                 per_sample_expert = (sample_task_ids % self.num_experts).long()
                 indices = per_sample_expert.unsqueeze(1).expand(-1, self.top_k).clone()
             else:
-                indices = torch.full((x.size(0), self.top_k), target_expert, dtype=torch.long, device=x.device)
+                indices = torch.full(
+                    (x.size(0), self.top_k),
+                    target_expert,
+                    dtype=torch.long,
+                    device=x.device,
+                )
             weights = torch.zeros((x.size(0), self.top_k), device=x.device)
             weights[:, 0] = 1.0
-            
+
             # [V31.14] SUPERVISED GATE TRAINING:
             # Even when forcing routing, we must train the gate to recognize these features.
             # Otherwise, the gate is 'garbage' during evaluation (Class-IL).
-            gate_weights, gate_indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
-            
+            gate_weights, gate_indices = self.gate(
+                x, task_id=task_id, consciousness_state=consciousness_state
+            )
+
             # Divergence Loss: Force gate logits to favor each sample's correct expert
-            if hasattr(self.gate, 'gate'):
+            if hasattr(self.gate, "gate"):
                 gate_logits = self.gate.last_logits
                 if use_per_sample_routing:
                     per_sample_labels = per_sample_expert
                     routing_loss = F.cross_entropy(gate_logits, per_sample_labels)
-                    self.gate.aux_loss = getattr(self.gate, 'aux_loss', 0.0) + routing_loss * 1.0
+                    self.gate.aux_loss = (
+                        getattr(self.gate, "aux_loss", 0.0) + routing_loss * 1.0
+                    )
                 else:
-                    target_labels = torch.full((x.size(0),), target_expert, dtype=torch.long, device=x.device)
+                    target_labels = torch.full(
+                        (x.size(0),), target_expert, dtype=torch.long, device=x.device
+                    )
                     routing_loss = F.cross_entropy(gate_logits, target_labels)
-                    self.gate.aux_loss = getattr(self.gate, 'aux_loss', 0.0) + routing_loss * 1.0
+                    self.gate.aux_loss = (
+                        getattr(self.gate, "aux_loss", 0.0) + routing_loss * 1.0
+                    )
         else:
             # Force top_k = 1 during evaluation to prevent logit dilution from zeroed experts
             orig_top_k = self.gate.top_k
             self.gate.top_k = 1
             try:
-                weights, indices = self.gate(x, task_id=task_id, consciousness_state=consciousness_state)
+                weights, indices = self.gate(
+                    x, task_id=task_id, consciousness_state=consciousness_state
+                )
             finally:
                 self.gate.top_k = orig_top_k
-        
+
         # [V31.8] STRATEGIC MODE: Expert Dropout (The Ghost Expert)
-        if self.training and self.num_experts > 1 and torch.rand(1).item() < 0.1:
+        if (
+            self.training
+            and task_id is None
+            and self.top_k > 1
+            and self.num_experts > 1
+            and torch.rand(1).item() < 0.1
+        ):
             drop_idx = torch.randint(0, self.num_experts, (1,)).item()
             # Create a mask that is 0 for the dropped expert
             mask = (indices != drop_idx).float()
@@ -323,24 +385,31 @@ class SparseMoE(nn.Module):
         with torch.no_grad():
             # [V26.0] Vectorized usage update
             flat_indices = indices.view(-1)
-            self.expert_usage.index_add_(0, flat_indices, torch.ones_like(flat_indices, dtype=self.expert_usage.dtype))
-        
+            self.expert_usage.index_add_(
+                0,
+                flat_indices,
+                torch.ones_like(flat_indices, dtype=self.expert_usage.dtype),
+            )
+
         batch_size = x.size(0)
         final_output = None
-        
+
         for i in range(self.num_experts):
-            mask = (indices == i)
+            mask = indices == i
             batch_idx, k_idx = torch.where(mask)
-            if len(batch_idx) == 0: continue
-            
+            if len(batch_idx) == 0:
+                continue
+
             selected_inputs = x[batch_idx]
             expert_out = self.experts[i](selected_inputs, task_id=task_id)
-            
+
             if final_output is None:
                 out_shape = list(expert_out.shape)
                 out_shape[0] = batch_size
-                final_output = torch.zeros(out_shape, device=x.device, dtype=expert_out.dtype)
-            
+                final_output = torch.zeros(
+                    out_shape, device=x.device, dtype=expert_out.dtype
+                )
+
             selected_weights = weights[batch_idx, k_idx]
             view_shape = [len(batch_idx)] + [1] * (expert_out.dim() - 1)
             selected_weights = selected_weights.view(*view_shape)
@@ -350,27 +419,49 @@ class SparseMoE(nn.Module):
 
         return final_output, indices
 
+
 class HierarchicalMoE(nn.Module):
     """
     [V9.0] Hierarchical Mixture of Experts.
     """
-    def __init__(self, base_model, input_dim, num_domains=2, experts_per_domain=2, top_k=1, temperature=1.0, classes_per_task=10):
+
+    def __init__(
+        self,
+        base_model,
+        input_dim,
+        num_domains=2,
+        experts_per_domain=2,
+        top_k=1,
+        temperature=1.0,
+        classes_per_task=10,
+    ):
         super().__init__()
         self.num_domains = num_domains
         self.experts_per_domain = experts_per_domain
         self.top_k = top_k
         self.classes_per_task = classes_per_task
-        self.domain_router = GatingNetwork(input_dim, num_domains, top_k=1, temperature=temperature)
-        self.domains = nn.ModuleList([
-            SparseMoE(base_model, input_dim, num_experts=experts_per_domain, top_k=top_k, temperature=temperature, classes_per_task=classes_per_task)
-            for _ in range(num_domains)
-        ])
+        self.domain_router = GatingNetwork(
+            input_dim, num_domains, top_k=1, temperature=temperature
+        )
+        self.domains = nn.ModuleList(
+            [
+                SparseMoE(
+                    base_model,
+                    input_dim,
+                    num_experts=experts_per_domain,
+                    top_k=top_k,
+                    temperature=temperature,
+                    classes_per_task=classes_per_task,
+                )
+                for _ in range(num_domains)
+            ]
+        )
 
     def set_temperature(self, temperature):
         self.domain_router.temperature = temperature
         for domain in self.domains:
             domain.set_temperature(temperature)
-        
+
     def get_expert_usage(self):
         usage = {}
         idx = 0
@@ -380,103 +471,146 @@ class HierarchicalMoE(nn.Module):
                 usage[idx] = float(s)
                 idx += 1
         return usage
-        
+
     def reset_usage(self):
         for domain in self.domains:
             domain.expert_usage.zero_()
-    
-    def forward(self, x, task_id=None, consciousness_state: Optional[torch.Tensor] = None, internal_mode: bool = False, target_data=None):
+
+    def forward(
+        self,
+        x,
+        task_id=None,
+        consciousness_state: Optional[torch.Tensor] = None,
+        internal_mode: bool = False,
+        target_data=None,
+    ):
         # [V35] PREVENT STALE GRAPH CRASH
         for domain in self.domains:
-            if hasattr(domain, 'gate') and hasattr(domain.gate, 'aux_loss'):
+            if hasattr(domain, "gate") and hasattr(domain.gate, "aux_loss"):
                 domain.gate.aux_loss = torch.tensor(0.0, device=x.device)
-        if hasattr(self.domain_router, 'aux_loss'):
+        if hasattr(self.domain_router, "aux_loss"):
             self.domain_router.aux_loss = torch.tensor(0.0, device=x.device)
-            
+
         if not self.training and task_id is None:
-            domain_weights, domain_indices = self.domain_router(x, task_id=None, consciousness_state=consciousness_state)
+            domain_weights, domain_indices = self.domain_router(
+                x, task_id=None, consciousness_state=consciousness_state
+            )
             top_domain = domain_indices[:, 0]
-            
+
             batch_size = x.size(0)
             final_output = None
-            
+
             for d_idx in range(self.num_domains):
-                mask = (top_domain == d_idx)
+                mask = top_domain == d_idx
                 if not mask.any():
                     continue
                 batch_idx = torch.where(mask)[0]
                 selected = x[batch_idx]
-                
-                domain_out, _ = self.domains[d_idx](selected, task_id=None, consciousness_state=consciousness_state)
-                
+
+                domain_out, _ = self.domains[d_idx](
+                    selected, task_id=None, consciousness_state=consciousness_state
+                )
+
                 if final_output is None:
                     out_shape = list(domain_out.shape)
                     out_shape[0] = batch_size
-                    final_output = torch.zeros(out_shape, device=x.device, dtype=domain_out.dtype)
-                
+                    final_output = torch.zeros(
+                        out_shape, device=x.device, dtype=domain_out.dtype
+                    )
+
                 final_output[batch_idx] = domain_out
-            
+
             return final_output, domain_indices
 
         if self.training and task_id is not None:
             total_experts = self.num_domains * self.experts_per_domain
             target_domain = (task_id % total_experts) // self.experts_per_domain
-            
+
             # [V35] PREVENT DATA CONTAMINATION (Mixed Batch Routing)
-            use_per_sample_routing = (target_data is not None) and (not torch.is_floating_point(target_data))
+            use_per_sample_routing = (target_data is not None) and (
+                not torch.is_floating_point(target_data)
+            )
             if use_per_sample_routing:
                 flat_targets = target_data.view(-1).to(x.device)
-                cpt = getattr(self, 'classes_per_task', 10)
+                cpt = getattr(self, "classes_per_task", 10)
                 sample_task_ids = flat_targets // cpt
-                target_labels = ((sample_task_ids % total_experts) // self.experts_per_domain).long()
-                domain_indices = target_labels.unsqueeze(1).expand(-1, self.top_k).clone()
+                target_labels = (
+                    (sample_task_ids % total_experts) // self.experts_per_domain
+                ).long()
+                domain_indices = (
+                    target_labels.unsqueeze(1).expand(-1, self.top_k).clone()
+                )
             else:
-                domain_indices = torch.full((x.size(0), self.top_k), target_domain, dtype=torch.long, device=x.device)
-                target_labels = torch.full((x.size(0),), target_domain, dtype=torch.long, device=x.device)
-                
+                domain_indices = torch.full(
+                    (x.size(0), self.top_k),
+                    target_domain,
+                    dtype=torch.long,
+                    device=x.device,
+                )
+                target_labels = torch.full(
+                    (x.size(0),), target_domain, dtype=torch.long, device=x.device
+                )
+
             domain_weights = torch.zeros((x.size(0), self.top_k), device=x.device)
             domain_weights[:, 0] = 1.0
-            
-            domain_out_weights, domain_out_indices = self.domain_router(x, task_id=task_id, consciousness_state=consciousness_state)
-            if hasattr(self.domain_router, 'gate'):
+
+            domain_out_weights, domain_out_indices = self.domain_router(
+                x, task_id=task_id, consciousness_state=consciousness_state
+            )
+            if hasattr(self.domain_router, "gate"):
                 gate_logits = self.domain_router.last_logits
                 routing_loss = F.cross_entropy(gate_logits, target_labels)
-                self.domain_router.aux_loss = getattr(self.domain_router, 'aux_loss', 0.0) + routing_loss * 1.0
+                self.domain_router.aux_loss = (
+                    getattr(self.domain_router, "aux_loss", 0.0) + routing_loss * 1.0
+                )
         else:
-            domain_weights, domain_indices = self.domain_router(x, task_id=task_id, consciousness_state=consciousness_state)
-            
+            domain_weights, domain_indices = self.domain_router(
+                x, task_id=task_id, consciousness_state=consciousness_state
+            )
+
         batch_size = x.size(0)
         final_output = None
-        
+
         for i in range(self.num_domains):
             mask = (domain_indices == i).any(dim=1)
             batch_idx = torch.where(mask)[0]
-            if len(batch_idx) == 0: continue
-                
+            if len(batch_idx) == 0:
+                continue
+
             selected_inputs = x[batch_idx]
             subset_target = target_data[mask] if target_data is not None else None
-            domain_out, _ = self.domains[i](selected_inputs, task_id=task_id, consciousness_state=consciousness_state, internal_mode=True, target_data=subset_target)
-            
+            domain_out, _ = self.domains[i](
+                selected_inputs,
+                task_id=task_id,
+                consciousness_state=consciousness_state,
+                internal_mode=True,
+                target_data=subset_target,
+            )
+
             if final_output is None:
                 out_shape = list(domain_out.shape)
                 out_shape[0] = batch_size
-                final_output = torch.zeros(out_shape, device=x.device, dtype=domain_out.dtype)
-            
-            w = domain_weights[batch_idx, 0].view(len(batch_idx), *([1] * (domain_out.dim() - 1)))
+                final_output = torch.zeros(
+                    out_shape, device=x.device, dtype=domain_out.dtype
+                )
+
+            w = domain_weights[batch_idx, 0].view(
+                len(batch_idx), *([1] * (domain_out.dim() - 1))
+            )
             # [V31.8] ETERNAL MIND: Ensure type alignment for index_add (Critical for AMP)
             contribution = (domain_out * w).to(final_output.dtype)
             final_output = final_output.index_add(0, batch_idx, contribution)
-            
+
         return final_output, domain_indices
 
     def get_aux_loss(self):
         total_loss = 0.0
-        if hasattr(self.domain_router, 'get_aux_loss'):
+        if hasattr(self.domain_router, "get_aux_loss"):
             val = self.domain_router.get_aux_loss()
             if val is not None:
                 total_loss += val
         for domain in self.domains:
-            if hasattr(domain, 'get_aux_loss'):
+            if hasattr(domain, "get_aux_loss"):
                 val = domain.get_aux_loss()
                 if val is not None:
                     total_loss += val
