@@ -1,5 +1,5 @@
 torch>=2.0.0
-torchvision>=0.15.0
+torchvision>=0.29.1
 numpy
 Pillow
 pyautogui
